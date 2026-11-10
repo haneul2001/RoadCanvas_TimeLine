@@ -19,8 +19,24 @@ class TripStore(context: Context) {
     private val tripsFile = File(dir, "trips.json")
     private val eventsFile = File(dir, "events.jsonl")
     private val trackFile = File(dir, "track.csv")
+    private val stickersFile = File(dir, "stickers.json")
 
     private fun visitsFile(level: Level) = File(dir, "visits_${level.name.lowercase()}.json")
+
+    fun loadStickers(): List<Sticker> = runCatching {
+        if (!stickersFile.exists()) return emptyList()
+        val array = JSONArray(stickersFile.readText())
+        (0 until array.length()).map {
+            val o = array.getJSONObject(it)
+            Sticker(o.getString("id"), o.getString("title"), o.getLong("t"), o.getLong("trip"))
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveStickers(stickers: List<Sticker>) {
+        val array = JSONArray()
+        stickers.forEach { array.put(JSONObject().put("id", it.id).put("title", it.title).put("t", it.timeMs).put("trip", it.tripId)) }
+        stickersFile.writeText(array.toString())
+    }
 
     fun loadVisits(level: Level): Map<String, VisitRecord> = runCatching {
         val file = visitsFile(level)
@@ -93,6 +109,6 @@ class TripStore(context: Context) {
 
     /** 사용자가 기록을 지울 때. */
     fun clear() {
-        (Level.entries.map(::visitsFile) + listOf(tripsFile, eventsFile, trackFile, File(dir, "visits.json"))).forEach { it.delete() }
+        (Level.entries.map(::visitsFile) + listOf(tripsFile, eventsFile, trackFile, stickersFile, File(dir, "visits.json"))).forEach { it.delete() }
     }
 }

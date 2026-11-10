@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import com.carnect.roadcanvas.BuildConfig
 import com.carnect.roadcanvas.RoadCanvasApp.Companion.TAG
+import com.carnect.roadcanvas.data.Landmarks
 import com.carnect.roadcanvas.location.LocationSource
 import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.Region
@@ -28,8 +29,16 @@ data class TripState(
     val events: List<TimelineEvent> = emptyList(),
     /** 단계별 현재 구역. */
     val current: Map<Level, Region> = emptyMap(),
+    /** 지금까지 받은 스티커(모든 여행). */
+    val stickers: List<Sticker> = emptyList(),
 ) {
     fun visitsAt(level: Level): Map<String, VisitRecord> = visits[level].orEmpty()
+
+    /** 머물렀지만 아직 방문 확인을 하지 않은 시·군·구 코드(먼저 머문 순). */
+    val pendingStays: List<String>
+        get() = visitsAt(Level.SGG).filterValues { it.state == VisitState.STAY_CANDIDATE }.entries.sortedBy { it.value.firstMs }.map { it.key }
+
+    fun stickersInTrip(): Int = trip?.let { t -> stickers.count { it.tripId == t.id } } ?: 0
 
     /** 이 여행에서 처음 방문한 구역 수. */
     fun newInTrip(level: Level): Int = trip?.let { t -> visitsAt(level).values.count { it.tripId == t.id } } ?: 0
@@ -50,6 +59,7 @@ class TripRecorder(
     private val store = TripStore(context)
     private val visits = Level.entries.associateWith { store.loadVisits(it).toMutableMap() }
     private val trips = store.loadTrips().toMutableList()
+    private val stickers = store.loadStickers().toMutableList()
     private val trackers = Level.entries.associateWith { level ->
         TripTracker(
             indexes.getValue(level),
@@ -86,6 +96,7 @@ class TripRecorder(
             track = track,
             events = trip?.let { store.loadEvents(it.id) }.orEmpty(),
             current = current,
+            stickers = stickers.toList(),
         )
     }
 
@@ -116,20 +127,58 @@ class TripRecorder(
         _state.update { it.copy(recording = false, trip = trip) }
     }
 
-    fun confirm(level: Level, code: String) {
-        val region = indexes.getValue(level).byCode(code) ?: return
-        val record = visits.getValue(level)[code] ?: return
+    /**
+     * 머문 시·군·구의 방문을 사용자가 확인했을 때. 그 안에서 머문 읍·면·동과 상위 시·도도 함께 확정하고,
+     * 지역 스티커와(경로가 근처를 지난) 장소 스티커를 준다. 통과만 한 곳은 확정 대상이 아니다.
+     */
+    fun confirmStay(sggCode: String) {
+        val sggIndex = indexes.getValue(Level.SGG)
+        val region = sggIndex.byCode(sggCode) ?: return
+        val record = visits.getValue(Level.SGG)[sggCode] ?: return
+        val now = System.currentTimeMillis()
+
+        markConfirmed(Level.SGG, sggCode)
+        markConfirmed(Level.SIDO, region.parent)
+        val dongIndex = indexes.getValue(Level.DONG)
+        visits.getValue(Level.DONG).filter { (code, v) -> v.state == VisitState.STAY_CANDIDATE && dongIndex.byCode(code)?.parent == sggCode }
+            .keys.forEach { markConfirmed(Level.DONG, it) }
+        addEvent(EventKind.CONFIRM, "${region.name} 방문 확정", region.toString().substringBefore("("), Level.SGG)
+
+        // 스티커: 이 지역을 처음 방문했던 여행의 경로 기준
+        val track = if (record.tripId == _state.value.trip?.id) _state.value.track else store.loadTrack(record.tripId)
+        val earned = mutableListOf<Sticker>()
+        earned += Sticker("region:$sggCode", region.name, now, record.tripId)
+        Landmarks.all
+            .filter { sggIndex.find(it.lat, it.lon)?.code == sggCode }
+            .filter { lm -> track.any { TripTracker.distanceM(it, TrackPoint(0, lm.lat, lm.lon)) <= lm.radiusM } }
+            .forEach { earned += Sticker("place:${it.id}", it.name, now, record.tripId) }
+        val fresh = earned.filter { s -> stickers.none { it.id == s.id } }
+        if (fresh.isNotEmpty()) {
+            stickers += fresh
+            store.saveStickers(stickers)
+            fresh.forEach { s ->
+                addEvent(EventKind.STICKER, "${s.title} 스티커 획득", if (s.isPlace) "${region.name} · 장소 스티커" else "${region.province} · 지역 스티커")
+            }
+            // 정차 중에만 확정할 수 있으므로 음성 안내를 덧붙여도 운전에 방해되지 않는다.
+            tts.speak("${fresh.joinToString(", ") { it.title }} 스티커를 받았어요.", flush = false)
+        }
+        Log.i(TAG, "confirm $sggCode stickers=${fresh.map { it.id }}")
+        _state.update { it.copy(visits = snapshotVisits(), stickers = stickers.toList()) }
+    }
+
+    private fun markConfirmed(level: Level, code: String) {
+        val levelVisits = visits.getValue(level)
+        val record = levelVisits[code] ?: return
         trackers.getValue(level).confirm(code)
-        visits.getValue(level)[code] = record.copy(state = VisitState.CONFIRMED)
-        store.saveVisits(level, visits.getValue(level))
-        addEvent(EventKind.CONFIRM, "${region.name} 방문 확정", region.toString(), level)
-        _state.update { it.copy(visits = snapshotVisits()) }
+        levelVisits[code] = record.copy(state = VisitState.CONFIRMED)
+        store.saveVisits(level, levelVisits)
     }
 
     fun clear() {
         store.clear()
         visits.values.forEach { it.clear() }
         trips.clear()
+        stickers.clear()
         _state.update { TripState(recording = it.recording) }
     }
 

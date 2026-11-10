@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import com.carnect.roadcanvas.data.Landmarks
 import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.Region
 import com.carnect.roadcanvas.region.RegionIndex
@@ -187,6 +188,7 @@ fun TripMap(
         val projection = Projection(size, viewport, zoom, pan)
         drawProvinceLabels(projection, provinceCenters.values, viewport, zoom)
         drawTrack(projection, shown.track)
+        drawStickerStars(projection, shown)
         drawPins(projection, shown, index.level)
     }
 }
@@ -218,6 +220,24 @@ private fun DrawScope.drawTrack(p: Projection, track: List<TrackPoint>) {
     track.drop(1).forEach { line.lineTo(p.x(it.lon), p.y(it.lat)) }
     drawPath(line, Color.White, style = Stroke(width = 11f, cap = StrokeCap.Round, join = StrokeJoin.Round))
     drawPath(line, Palette.Primary, style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+}
+
+/** 장소 스티커를 받은 명소에 별을 찍는다. */
+private fun DrawScope.drawStickerStars(p: Projection, trip: TripState) {
+    trip.stickers.filter { it.isPlace }.mapNotNull { Landmarks.byId(it.id.removePrefix("place:")) }.forEach { lm ->
+        val c = Offset(p.x(lm.lon), p.y(lm.lat))
+        val star = Path()
+        for (i in 0 until 10) {
+            val r = if (i % 2 == 0) 22f else 9f
+            val a = Math.toRadians(-90.0 + i * 36.0)
+            val x = c.x + (r * kotlin.math.cos(a)).toFloat()
+            val y = c.y + (r * kotlin.math.sin(a)).toFloat()
+            if (i == 0) star.moveTo(x, y) else star.lineTo(x, y)
+        }
+        star.close()
+        drawPath(star, Color.White, style = Stroke(width = 6f, join = StrokeJoin.Round))
+        drawPath(star, Palette.Amber)
+    }
 }
 
 /** 출발점, 머문 곳, 현재 위치에 이름표를 단다. */

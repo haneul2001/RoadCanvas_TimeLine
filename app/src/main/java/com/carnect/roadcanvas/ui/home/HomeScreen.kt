@@ -74,7 +74,7 @@ enum class Feature(val title: String, val caption: String, val ready: Boolean) {
     SMART_DETOUR("Smart Detour", "최소 우회 탐험", false),
     ROUTE_REPLAY("Route Replay", "타임랩스 재생", true),
     TIMELINE("TimeLine", "여행 기록 타임라인", true),
-    COLLECTION("Collection", "스티커 · 미션", false),
+    COLLECTION("Collection", "스티커 · 미션", true),
     VOICE_PLANNER("Voice Planner", "음성 다구간 여행 계획", false),
     SETTINGS("설정 · 개인정보", "", true),
 }
@@ -90,8 +90,17 @@ fun HomeScreen(
     /** 기어를 확실히 P가 아닌 단으로 놓았을 때(기어를 아직 모르면 false). */
     driving: Boolean,
     onToggleTrip: () -> Unit,
+    onConfirmStay: (String) -> Unit,
     onFeature: (Feature) -> Unit,
 ) {
+    var showCollection by rememberSaveable { mutableStateOf(false) }
+    if (showCollection && indexes != null) {
+        androidx.activity.compose.BackHandler { showCollection = false }
+        CollectionScreen(indexes, trip, onClose = { showCollection = false })
+        return
+    }
+    // '나중에'를 누른 머문 곳은 이번 화면에서는 다시 묻지 않는다.
+    var postponed by rememberSaveable { mutableStateOf(listOf<String>()) }
     // 색칠 기준. 기본은 시·군·구.
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
@@ -120,7 +129,15 @@ fun HomeScreen(
     }
     val frame = replay?.let { it.frameAt(it.timeAt(progress.value)) }
     val shown = frame ?: trip
-    val onFeatureTap: (Feature) -> Unit = { f -> if (f == Feature.ROUTE_REPLAY) startReplay() else onFeature(f) }
+    val onFeatureTap: (Feature) -> Unit = { f ->
+        when (f) {
+            Feature.ROUTE_REPLAY -> startReplay()
+            Feature.COLLECTION -> showCollection = true
+            else -> onFeature(f)
+        }
+    }
+    // 방문 확인은 정차 중, 타임랩스가 아닐 때만 묻는다.
+    val askStay = if (parked && replay == null) trip.pendingStays.firstOrNull { it !in postponed } else null
 
     Column(
         Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 28.dp, vertical = 20.dp),
@@ -137,6 +154,15 @@ fun HomeScreen(
             ) {
                 if (index != null) TripMap(index, trip, interactive = parked && replay == null, Modifier.fillMaxSize(), frame = frame)
                 LevelSelector(level, onSelect = { level = it }, Modifier.align(Alignment.TopStart).padding(14.dp))
+                val stayName = askStay?.let { indexes?.get(Level.SGG)?.byCode(it)?.name }
+                if (askStay != null && stayName != null) {
+                    ConfirmStayCard(
+                        stayName,
+                        onConfirm = { onConfirmStay(askStay) },
+                        onLater = { postponed = postponed + askStay },
+                        Modifier.align(Alignment.TopEnd).padding(14.dp),
+                    )
+                }
                 val r = replay
                 if (r != null && frame != null) {
                     ReplayBar(r, frame, progress.value, onStop = { replay = null }, Modifier.align(Alignment.BottomStart).padding(14.dp))
@@ -267,7 +293,7 @@ private fun StatCards(indexes: Map<Level, RegionIndex>?, level: Level, trip: Tri
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         StatCard(Icons.Filled.Place, Palette.Primary, Palette.PrimarySoft, "총 이동거리", TripRecorder.formatKm(km), Modifier.weight(1f))
         StatCard(Icons.Filled.Share, Palette.Teal, Palette.TealSoft, "새 방문 ${level.label}", "${trip.newInTrip(level)}곳", Modifier.weight(1f))
-        StatCard(Icons.Filled.Star, Palette.Amber, Palette.AmberSoft, "스티커", "0개 획득", Modifier.weight(1f))
+        StatCard(Icons.Filled.Star, Palette.Amber, Palette.AmberSoft, "스티커 (전체 ${trip.stickers.size}개)", "${trip.stickersInTrip()}개 획득", Modifier.weight(1f))
         Column(
             Modifier.weight(1.2f).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Palette.PrimarySoft).padding(18.dp),
             verticalArrangement = Arrangement.Center,
@@ -366,7 +392,7 @@ private fun TimelineRow(e: TimelineEvent, first: Boolean, last: Boolean) {
     val accent = when (e.kind) {
         EventKind.START, EventKind.DAY, EventKind.END -> Palette.Primary
         EventKind.FIRST_VISIT -> Palette.Teal
-        EventKind.STAY, EventKind.CONFIRM -> Palette.Amber
+        EventKind.STAY, EventKind.CONFIRM, EventKind.STICKER -> Palette.Amber
     }
     Row(Modifier.fillMaxWidth().height(78.dp)) {
         Box(Modifier.width(30.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
@@ -382,7 +408,7 @@ private fun TimelineRow(e: TimelineEvent, first: Boolean, last: Boolean) {
         Spacer(Modifier.width(10.dp))
         Row(
             Modifier.weight(1f).padding(bottom = 8.dp).clip(RoundedCornerShape(12.dp))
-                .background(if (e.kind == EventKind.STAY || e.kind == EventKind.CONFIRM) Palette.AmberSoft else Palette.Background)
+                .background(if (e.kind == EventKind.STAY || e.kind == EventKind.CONFIRM || e.kind == EventKind.STICKER) Palette.AmberSoft else Palette.Background)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -390,7 +416,7 @@ private fun TimelineRow(e: TimelineEvent, first: Boolean, last: Boolean) {
                 Text(e.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 1)
                 Text(e.detail, fontSize = 15.sp, color = Palette.Muted, maxLines = 1)
             }
-            if (e.kind == EventKind.STAY || e.kind == EventKind.CONFIRM) {
+            if (e.kind == EventKind.STAY || e.kind == EventKind.CONFIRM || e.kind == EventKind.STICKER) {
                 Icon(Icons.Filled.Star, null, tint = Palette.Amber, modifier = Modifier.size(28.dp))
             }
         }

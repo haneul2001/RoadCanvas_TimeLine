@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
                             parked = vehicle.parked,
                             driving = vehicle.gear != null && !vehicle.parked,
                             onToggleTrip = { toggleTrip(trip.recording) },
+                            onConfirmStay = { code -> app.tripRecorder?.confirmStay(code) },
                             onFeature = { f ->
                                 when {
                                     f == Feature.SETTINGS -> settings = true

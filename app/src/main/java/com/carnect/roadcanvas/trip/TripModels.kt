@@ -11,7 +11,14 @@ data class Trip(val id: Long, val endMs: Long? = null, val distanceM: Double = 0
     val active: Boolean get() = endMs == null
 }
 
-enum class EventKind { START, DAY, FIRST_VISIT, STAY, CONFIRM, END }
+enum class EventKind { START, DAY, FIRST_VISIT, STAY, CONFIRM, STICKER, END }
+
+/**
+ * 받은 스티커. 지역 스티커는 "region:<시·군·구 코드>", 장소 스티커는 "place:<장소 id>".
+ */
+data class Sticker(val id: String, val title: String, val timeMs: Long, val tripId: Long) {
+    val isPlace: Boolean get() = id.startsWith("place:")
+}
 
 /** 여행 타임라인의 한 줄. [level]이 null이면 단계와 상관없는 줄(출발·종료). */
 data class TimelineEvent(
