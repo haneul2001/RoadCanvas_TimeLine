@@ -63,6 +63,8 @@ dependencies {
     implementation(libs.pleos.vehicle)
     implementation(libs.pleos.navihelper)
     implementation(libs.pleos.tts)
+    implementation(libs.pleos.fusedlocation)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 }
