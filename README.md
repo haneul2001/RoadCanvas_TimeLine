@@ -22,9 +22,11 @@
 
 - 사용자가 **여행 시작**을 누르고 위치 권한을 허용해야 기록합니다. 기록은 기기 안에만 저장합니다.
 - Pleos FusedLocation으로 받은 좌표를 시·군·구 경계와 대조해 처음 지나간 곳은 **통과**, 한곳에 머문 곳은 **머문 곳(방문 후보)** 으로 칠합니다. 통과만으로 방문을 확정하지 않습니다.
+- 색칠 기준을 **시·도 / 시·군·구 / 읍·면·동** 세 단계로 바꿔 볼 수 있습니다. 판정은 늘 세 단계를 함께 하고, 진행률은 단계에 맞춰(전국 시·도 중 / 지금 시·도 안 / 지금 시·군·구 안) 보여 줍니다.
 - 지도는 방문한 순서대로 무지개색으로 칠하고(머문 곳은 진하게), 이번 여행 범위로 자동 확대합니다. 경로선은 차가 실제로 지나간 위치 기록을 그대로 잇습니다.
+- 정차 중에는 지도를 끌어서 옮기고 두 손가락으로 확대할 수 있으며, 두 번 탭하면 여행 범위로 돌아옵니다. 주행 중에는 지도 조작이 잠깁니다.
 - 여행 타임라인에 출발 · 첫 방문 · 머문 곳 · 여행 종료 요약이 시간순으로 쌓입니다.
-- 처음 지나는 시·군·구마다 한 번, 짧은 음성으로 알려 줍니다.
+- 처음 들어온 시·도와 처음 지나는 시·군·구마다 한 번, 짧은 음성으로 알려 줍니다(읍·면·동은 너무 잦아 화면에만 기록).
 - 내비가 화면 앞에 있어도 기록이 이어지도록 포그라운드 서비스로 동작합니다.
 
 ## 테스트 환경
@@ -67,7 +69,7 @@ python scripts/demo_trip.py
 
 ## 데이터 출처
 
-- 시·군·구 경계: 통계청 2018 행정구역 경계([southkorea-maps](https://github.com/southkorea/southkorea-maps) 배포본)를 `scripts/build_regions.py`로 단순화해 `app/src/main/assets/regions.json`에 포함
+- 행정구역 경계(시·도 / 시·군·구 / 읍·면·동, 2026-10-01 기준): 본 데이터는 통계청 통계지리정보서비스(SGIS, https://sgis.kostat.go.kr)에서 공공누리 제1유형으로 개방한 행정동 경계를 가공한 것이며(가공: [vuski/admdongkor](https://github.com/vuski/admdongkor)), CC BY 4.0으로 배포됩니다. `scripts/build_regions.py`로 단계별로 합치고 단순화해 `app/src/main/assets/regions_*.json`에 포함했습니다.
 - 시연용 도로 경로: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors(ODbL), [OSRM](https://project-osrm.org/) 길찾기 결과
 
 ## APK

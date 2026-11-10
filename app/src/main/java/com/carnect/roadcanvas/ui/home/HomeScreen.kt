@@ -50,6 +50,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.RegionIndex
 import com.carnect.roadcanvas.trip.EventKind
 import com.carnect.roadcanvas.trip.TimelineEvent
@@ -70,12 +75,15 @@ enum class Feature(val title: String, val caption: String, val ready: Boolean) {
 
 @Composable
 fun HomeScreen(
-    index: RegionIndex?,
+    indexes: Map<Level, RegionIndex>?,
     trip: TripState,
     parked: Boolean,
     onToggleTrip: () -> Unit,
     onFeature: (Feature) -> Unit,
 ) {
+    // 색칠 기준. 기본은 시·군·구.
+    var level by rememberSaveable { mutableStateOf(Level.SGG) }
+    val index = indexes?.get(level)
     Column(
         Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 28.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -84,15 +92,16 @@ fun HomeScreen(
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(330.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 VoiceBubble()
-                StatCards(index, trip, Modifier.weight(1f))
+                StatCards(indexes, level, trip, Modifier.weight(1f))
             }
             Box(
                 Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea),
             ) {
-                if (index != null) TripMap(index, trip, Modifier.fillMaxSize())
+                if (index != null) TripMap(index, trip, interactive = parked, Modifier.fillMaxSize())
+                LevelSelector(level, onSelect = { level = it }, Modifier.align(Alignment.TopStart).padding(14.dp))
                 MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))
             }
-            TimelineCard(trip.events, Modifier.width(470.dp).fillMaxHeight())
+            TimelineCard(trip.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
         }
         ActionRow(trip.recording, parked, onToggleTrip, onFeature)
         InfoChips(parked)
@@ -132,25 +141,68 @@ private fun VoiceBubble() {
     }
 }
 
+/** 지도 위 색칠 기준 선택(시·도 / 시·군·구 / 읍·면·동). */
 @Composable
-private fun StatCards(index: RegionIndex?, trip: TripState, modifier: Modifier) {
+private fun LevelSelector(level: Level, onSelect: (Level) -> Unit, modifier: Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(24.dp)).background(Color.White.copy(alpha = 0.95f))
+            .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(4.dp),
+    ) {
+        Level.entries.forEach { l ->
+            val selected = l == level
+            Box(
+                Modifier.clip(RoundedCornerShape(20.dp)).background(if (selected) Palette.Primary else Color.Transparent)
+                    .clickable { onSelect(l) }.padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                Text(l.label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (selected) Color.White else Palette.Ink)
+            }
+        }
+    }
+}
+
+/**
+ * 진행률은 단계마다 기준이 다르다.
+ * 시·도: 전국 시·도 중 / 시·군·구: 지금 있는 시·도 안에서 / 읍·면·동: 지금 있는 시·군·구 안에서.
+ */
+private fun progressOf(indexes: Map<Level, RegionIndex>?, level: Level, trip: TripState): Triple<String, Int, Int>? {
+    val index = indexes?.get(level) ?: return null
+    val visited = trip.visitsAt(level).keys
+    return when (level) {
+        Level.SIDO -> Triple("전국 시·도", visited.size, index.regions.size)
+        Level.SGG -> trip.current[Level.SIDO]?.let { sido ->
+            Triple(sido.name, visited.count { index.byCode(it)?.parent == sido.code }, index.countIn(sido.code))
+        }
+        Level.DONG -> trip.current[Level.SGG]?.let { sgg ->
+            Triple(sgg.name, visited.count { index.byCode(it)?.parent == sgg.code }, index.countIn(sgg.code))
+        }
+    }
+}
+
+@Composable
+private fun StatCards(indexes: Map<Level, RegionIndex>?, level: Level, trip: TripState, modifier: Modifier) {
     val km = (trip.trip?.distanceM ?: 0.0) / 1000
-    val region = trip.currentRegion
-    val provinceTotal = index?.countByProvince()?.get(region?.provinceCode) ?: 0
-    val provinceDone = region?.let { r -> trip.visits.keys.count { it.startsWith(r.provinceCode) } } ?: 0
-    val progress = if (provinceTotal > 0) provinceDone.toFloat() / provinceTotal else 0f
+    val progressInfo = progressOf(indexes, level, trip)
+    val (scope, done, total) = progressInfo ?: Triple("", 0, 0)
+    val progress = if (total > 0) done.toFloat() / total else 0f
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         StatCard(Icons.Filled.Place, Palette.Primary, Palette.PrimarySoft, "총 이동거리", TripRecorder.formatKm(km), Modifier.weight(1f))
-        StatCard(Icons.Filled.Share, Palette.Teal, Palette.TealSoft, "새 방문 지역", "${trip.newRegionsInTrip}개 지역", Modifier.weight(1f))
+        StatCard(Icons.Filled.Share, Palette.Teal, Palette.TealSoft, "새 방문 ${level.label}", "${trip.newInTrip(level)}곳", Modifier.weight(1f))
         StatCard(Icons.Filled.Star, Palette.Amber, Palette.AmberSoft, "스티커", "0개 획득", Modifier.weight(1f))
         Column(
             Modifier.weight(1.2f).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Palette.PrimarySoft).padding(18.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(region?.let { "${it.province} 진행률" } ?: "진행률", fontSize = 16.sp, color = Palette.Muted)
             Text(
-                if (provinceTotal > 0) "${(progress * 100).toInt()}%  ($provinceDone/$provinceTotal)" else "—",
+                when {
+                    progressInfo == null -> "진행률"
+                    level == Level.SIDO -> "$scope 진행률"
+                    else -> "$scope ${level.label} 진행률"
+                },
+                fontSize = 16.sp, color = Palette.Muted, maxLines = 1,
+            )
+            Text(
+                if (total > 0) "${(progress * 100).toInt()}%  ($done/$total)" else "—",
                 fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Palette.Ink,
             )
             Spacer(Modifier.height(8.dp))

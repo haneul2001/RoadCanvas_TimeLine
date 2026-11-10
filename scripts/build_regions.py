@@ -1,89 +1,75 @@
 """
-시·군·구 경계 GeoJSON을 앱용 경량 JSON으로 변환한다.
+행정동 경계 GeoJSON에서 3단계(시·도 / 시·군·구 / 읍·면·동) 경계를 만들어 앱 assets에 넣는다.
 
-입력: 통계청 2018 시·군·구 경계(GeoJSON, southkorea-maps 저장소의 kostat/2018 데이터)
-출력: app/src/main/assets/regions.json
-  [{"code": "11010", "name": "종로구", "province": "서울특별시",
-    "rings": [[lon, lat, lon, lat, ...], ...]}, ...]
+입력: vuski/admdongkor 의 HangJeongDong_verYYYYMMDD.geojson
+      (통계청 SGIS 행정동 경계, 공공누리 제1유형 · 가공 CC BY 4.0)
+출력: app/src/main/assets/regions_sido.json, regions_sgg.json, regions_dong.json
+  [{"code", "name", "province", "parent", "rings": [[lon, lat, ...], ...]}, ...]
 
-사용: python scripts/build_regions.py <입력 GeoJSON> [허용 오차(도), 기본 0.001]
+시·군·구와 시·도 경계는 읍·면·동을 합쳐서 만든다(shapely 필요).
+사용: python scripts/build_regions.py <행정동 GeoJSON>
 """
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
 
-PROVINCES = {
-    "11": "서울특별시", "21": "부산광역시", "22": "대구광역시", "23": "인천광역시",
-    "24": "광주광역시", "25": "대전광역시", "26": "울산광역시", "29": "세종특별자치시",
-    "31": "경기도", "32": "강원특별자치도", "33": "충청북도", "34": "충청남도",
-    "35": "전북특별자치도", "36": "전라남도", "37": "경상북도", "38": "경상남도",
-    "39": "제주특별자치도",
-}
+from shapely.geometry import MultiPolygon, Polygon, shape
+from shapely.ops import unary_union
+
+# 단계별 단순화 허용 오차(도). 작은 단계일수록 촘촘하게.
+TOLERANCE = {"sido": 0.004, "sgg": 0.0015, "dong": 0.0004}
 
 
-def simplify(points, tolerance):
-    """Douglas-Peucker. points: [(x, y), ...]"""
-    if len(points) < 3:
-        return points
-    keep = [False] * len(points)
-    keep[0] = keep[-1] = True
-    stack = [(0, len(points) - 1)]
-    tol2 = tolerance * tolerance
-    while stack:
-        start, end = stack.pop()
-        ax, ay = points[start]
-        bx, by = points[end]
-        dx, dy = bx - ax, by - ay
-        length2 = dx * dx + dy * dy
-        best, best_i = -1.0, -1
-        for i in range(start + 1, end):
-            px, py = points[i]
-            if length2 == 0:
-                d2 = (px - ax) ** 2 + (py - ay) ** 2
-            else:
-                t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length2))
-                d2 = (px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2
-            if d2 > best:
-                best, best_i = d2, i
-        if best > tol2:
-            keep[best_i] = True
-            stack.append((start, best_i))
-            stack.append((best_i, end))
-    return [p for p, k in zip(points, keep) if k]
+def rings_of(geom, tolerance):
+    geom = geom.simplify(tolerance, preserve_topology=True)
+    polygons = geom.geoms if isinstance(geom, MultiPolygon) else [geom] if isinstance(geom, Polygon) else []
+    out = []
+    for poly in polygons:
+        coords = list(poly.exterior.coords)
+        if len(coords) < 4:
+            continue
+        out.append([round(v, 5) for c in coords for v in c[:2]])
+    return out
 
 
 def main():
     src = Path(sys.argv[1])
-    tolerance = float(sys.argv[2]) if len(sys.argv) > 2 else 0.001
-    out = Path(__file__).resolve().parent.parent / "app/src/main/assets/regions.json"
+    assets = Path(__file__).resolve().parent.parent / "app/src/main/assets"
+    assets.mkdir(parents=True, exist_ok=True)
 
     data = json.loads(src.read_text(encoding="utf-8"))
-    regions = []
-    total = 0
-    for feature in data["features"]:
-        props = feature["properties"]
-        geom = feature["geometry"]
-        polygons = geom["coordinates"] if geom["type"] == "MultiPolygon" else [geom["coordinates"]]
-        rings = []
-        # 바깥 경계만 쓴다(구멍은 판정·표시에 영향이 작다).
-        for polygon in polygons:
-            ring = simplify([tuple(p[:2]) for p in polygon[0]], tolerance)
-            if len(ring) < 4:
-                continue
-            rings.append([round(v, 5) for p in ring for v in p])
-            total += len(ring)
-        if rings:
-            code = props["code"]
-            regions.append({
-                "code": code,
-                "name": props["name"],
-                "province": PROVINCES.get(code[:2], ""),
-                "rings": rings,
-            })
+    dongs, sgg_geoms, sido_geoms = [], defaultdict(list), defaultdict(list)
+    sgg_info, sido_name = {}, {}
+    for f in data["features"]:
+        p = f["properties"]
+        geom = shape(f["geometry"]).buffer(0)  # 잘못 꼬인 폴리곤 정리
+        name = p["adm_nm"].split()[-1]
+        dongs.append((p["adm_cd2"], name, p["sidonm"], p["sgg"], geom))
+        sgg_geoms[p["sgg"]].append(geom)
+        sgg_info[p["sgg"]] = (p["sggnm"], p["sidonm"], p["sido"])
+        sido_geoms[p["sido"]].append(geom)
+        sido_name[p["sido"]] = p["sidonm"]
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(regions, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"{len(regions)} regions, {total} points, {out.stat().st_size // 1024} KB -> {out}")
+    levels = {"dong": [], "sgg": [], "sido": []}
+    for code, name, province, parent, geom in dongs:
+        levels["dong"].append({"code": code, "name": name, "province": province, "parent": parent,
+                               "rings": rings_of(geom, TOLERANCE["dong"])})
+    for code, geoms in sgg_geoms.items():
+        name, province, sido = sgg_info[code]
+        levels["sgg"].append({"code": code, "name": name, "province": province, "parent": sido,
+                              "rings": rings_of(unary_union(geoms), TOLERANCE["sgg"])})
+    for code, geoms in sido_geoms.items():
+        levels["sido"].append({"code": code, "name": sido_name[code], "province": sido_name[code], "parent": "",
+                               "rings": rings_of(unary_union(geoms), TOLERANCE["sido"])})
+
+    for level, regions in levels.items():
+        regions = [r for r in regions if r["rings"]]
+        regions.sort(key=lambda r: r["code"])
+        out = assets / f"regions_{level}.json"
+        out.write_text(json.dumps(regions, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        points = sum(len(ring) // 2 for r in regions for ring in r["rings"])
+        print(f"{level}: {len(regions)} regions, {points} points, {out.stat().st_size // 1024} KB")
 
 
 if __name__ == "__main__":

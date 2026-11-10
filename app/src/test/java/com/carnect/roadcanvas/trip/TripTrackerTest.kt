@@ -1,5 +1,6 @@
 package com.carnect.roadcanvas.trip
 
+import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.RegionIndex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,7 +16,7 @@ class TripTrackerTest {
         @BeforeClass
         @JvmStatic
         fun load() {
-            index = File("src/main/assets/regions.json").inputStream().use(RegionIndex::load)
+            index = File("src/main/assets/${Level.SGG.asset}").inputStream().use { RegionIndex.load(Level.SGG, it) }
         }
     }
 

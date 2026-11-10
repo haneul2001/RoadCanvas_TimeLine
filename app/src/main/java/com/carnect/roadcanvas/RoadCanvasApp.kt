@@ -3,6 +3,7 @@ package com.carnect.roadcanvas
 import android.app.Application
 import android.util.Log
 import com.carnect.roadcanvas.navi.NaviRepo
+import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.RegionIndex
 import com.carnect.roadcanvas.trip.TripRecorder
 import com.carnect.roadcanvas.vehicle.VehicleRepo
@@ -27,9 +28,9 @@ class RoadCanvasApp : Application() {
     lateinit var tts: TtsEngine
         private set
 
-    private val _regions = MutableStateFlow<RegionIndex?>(null)
-    /** 경계 데이터는 1MB 가까이 되어 백그라운드에서 읽는다. */
-    val regions: StateFlow<RegionIndex?> = _regions.asStateFlow()
+    private val _regions = MutableStateFlow<Map<Level, RegionIndex>?>(null)
+    /** 단계별 경계 데이터(합쳐 5MB 가까이)는 백그라운드에서 읽는다. */
+    val regions: StateFlow<Map<Level, RegionIndex>?> = _regions.asStateFlow()
 
     var tripRecorder: TripRecorder? = null
         private set
@@ -42,10 +43,12 @@ class RoadCanvasApp : Application() {
         tts = TtsEngine(this).also { it.start() }
 
         scope.launch {
-            val index = withContext(Dispatchers.IO) { assets.open("regions.json").use(RegionIndex::load) }
-            tripRecorder = TripRecorder(this@RoadCanvasApp, index, tts)
-            _regions.value = index
-            Log.i(TAG, "regions loaded: ${index.regions.size}")
+            val indexes = withContext(Dispatchers.IO) {
+                Level.entries.associateWith { level -> assets.open(level.asset).use { RegionIndex.load(level, it) } }
+            }
+            tripRecorder = TripRecorder(this@RoadCanvasApp, indexes, tts)
+            _regions.value = indexes
+            Log.i(TAG, "regions loaded: " + indexes.values.joinToString { "${it.level.label} ${it.regions.size}" })
         }
     }
 

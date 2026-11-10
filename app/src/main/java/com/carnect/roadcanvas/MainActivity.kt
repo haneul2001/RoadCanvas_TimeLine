@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         HomeScreen(
-                            index = regions,
+                            indexes = regions,
                             trip = trip,
                             parked = vehicle.parked,
                             onToggleTrip = { toggleTrip(trip.recording) },

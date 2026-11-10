@@ -9,36 +9,56 @@ import java.io.File
 class RegionIndexTest {
 
     companion object {
-        lateinit var index: RegionIndex
+        lateinit var sido: RegionIndex
+        lateinit var sgg: RegionIndex
+        lateinit var dong: RegionIndex
+
+        fun load(level: Level) = File("src/main/assets/${level.asset}").inputStream().use { RegionIndex.load(level, it) }
 
         @BeforeClass
         @JvmStatic
-        fun load() {
-            index = File("src/main/assets/regions.json").inputStream().use(RegionIndex::load)
+        fun loadAll() {
+            sido = load(Level.SIDO)
+            sgg = load(Level.SGG)
+            dong = load(Level.DONG)
         }
     }
 
-    private fun nameAt(lat: Double, lon: Double) = index.find(lat, lon)?.name
-
     @Test
-    fun `250개 시군구를 읽는다`() {
-        assertEquals(250, index.regions.size)
-        assertEquals(18, index.countByProvince()["32"])
+    fun `세 단계 데이터를 읽는다`() {
+        assertEquals(16, sido.regions.size)
+        assertEquals(256, sgg.regions.size)
+        assertEquals(3559, dong.regions.size)
+        assertEquals(18, sgg.countByProvince()["51"]) // 강원특별자치도
     }
 
     @Test
-    fun `대표 지점이 맞는 시군구로 판정된다`() {
-        assertEquals("종로구", nameAt(37.5759, 126.9768)) // 광화문
-        assertEquals("홍천군", nameAt(37.6970, 127.8888)) // 홍천군청
-        assertEquals("속초시", nameAt(38.2070, 128.5918)) // 속초시청
-        assertEquals("양양군", nameAt(38.0754, 128.6190)) // 양양군청
-        assertEquals("강릉시", nameAt(37.7519, 128.8761)) // 강릉시청
-        assertEquals("제주시", nameAt(33.4996, 126.5312)) // 제주시청
+    fun `대표 지점이 세 단계 모두 맞게 판정된다`() {
+        // 광화문
+        assertEquals("서울특별시", sido.find(37.5759, 126.9768)?.name)
+        assertEquals("종로구", sgg.find(37.5759, 126.9768)?.name)
+        // 읍·면·동은 경계 가까운 점이 많아 확실히 한가운데인 곳으로 본다(인천공항 → 운서1동).
+        assertEquals("운서1동", dong.find(37.4602, 126.4407)?.name)
+        // 강릉시청
+        assertEquals("강원특별자치도", sido.find(37.7519, 128.8761)?.name)
+        assertEquals("강릉시", sgg.find(37.7519, 128.8761)?.name)
+        // 홍천·속초·제주
+        assertEquals("홍천군", sgg.find(37.6970, 127.8888)?.name)
+        assertEquals("속초시", sgg.find(38.2070, 128.5918)?.name)
+        assertEquals("제주시", sgg.find(33.4996, 126.5312)?.name)
+    }
+
+    @Test
+    fun `하위 단계는 상위 단계 코드를 부모로 가진다`() {
+        val d = dong.find(37.5759, 126.9768)!!
+        val s = sgg.find(37.5759, 126.9768)!!
+        assertEquals(s.code, d.parent)
+        assertEquals(sido.find(37.5759, 126.9768)!!.code, s.parent)
     }
 
     @Test
     fun `바다 위는 어느 지역도 아니다`() {
-        assertNull(index.find(36.0, 131.5)) // 동해 한가운데
-        assertNull(index.find(35.0, 125.0)) // 서해 한가운데
+        assertNull(sgg.find(36.0, 131.5)) // 동해 한가운데
+        assertNull(dong.find(35.0, 125.0)) // 서해 한가운데
     }
 }

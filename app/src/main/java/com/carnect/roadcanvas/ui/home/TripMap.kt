@@ -3,9 +3,19 @@ package com.carnect.roadcanvas.ui.home
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -17,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.Region
 import com.carnect.roadcanvas.region.RegionIndex
 import com.carnect.roadcanvas.trip.EventKind
@@ -54,21 +65,25 @@ data class Viewport(val minLon: Double, val maxLon: Double, val minLat: Double, 
     }
 }
 
-private class Projection(size: Size, v: Viewport) {
+/** [zoom]·[pan]은 사용자가 끌거나 벌려서 바꾼 화면 변환(기본 1배, 이동 없음). */
+private class Projection(size: Size, v: Viewport, private val zoom: Float = 1f, private val pan: Offset = Offset.Zero) {
     private val lonScale = cos(Math.toRadians((v.minLat + v.maxLat) / 2))
     private val w = (v.maxLon - v.minLon) * lonScale
     private val h = v.maxLat - v.minLat
-    // 전국 보기는 전체가 들어오게, 여행 보기는 화면을 꽉 채운다(남는 쪽은 잘림).
-    private val scale = if (v == Viewport.KOREA) min(size.width / w, size.height / h) else max(size.width / w, size.height / h)
+    // 범위 전체가 화면에 들어오게 맞춘다(여행 경로가 잘리지 않도록).
+    private val scale = min(size.width / w, size.height / h)
     private val offsetX = (size.width - w * scale) / 2
     private val offsetY = (size.height - h * scale) / 2
     private val minLon = v.minLon
     private val maxLat = v.maxLat
     private val ls = lonScale
 
-    fun x(lon: Double) = (offsetX + (lon - minLon) * ls * scale).toFloat()
-    fun y(lat: Double) = (offsetY + (maxLat - lat) * scale).toFloat()
+    fun x(lon: Double) = (offsetX + (lon - minLon) * ls * scale).toFloat() * zoom + pan.x
+    fun y(lat: Double) = (offsetY + (maxLat - lat) * scale).toFloat() * zoom + pan.y
 }
+
+private const val MIN_ZOOM = 0.6f
+private const val MAX_ZOOM = 8f
 
 /** 방문 순서대로 빨강 → 보라를 돌아가며 칠한다. 머문 곳·확정은 같은 색을 진하게. */
 fun rainbow(order: Int, state: VisitState): Color {
@@ -80,13 +95,49 @@ fun rainbow(order: Int, state: VisitState): Color {
     }
 }
 
+/**
+ * 여행 지도. [interactive]일 때(정차 중) 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소하며,
+ * 두 번 탭하면 이번 여행 범위로 돌아온다.
+ */
 @Composable
-fun TripMap(index: RegionIndex, trip: TripState, modifier: Modifier = Modifier) {
-    val tripRegions = trip.trip?.let { t -> trip.visits.filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
+fun TripMap(index: RegionIndex, trip: TripState, interactive: Boolean, modifier: Modifier = Modifier) {
+    val visits = trip.visitsAt(index.level)
+    val tripRegions = trip.trip?.let { t -> visits.filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
     val viewport = remember(tripRegions.size, trip.track.size / 20) { Viewport.around(tripRegions, trip.track) }
-    val order = remember(trip.visits) {
-        trip.visits.entries.sortedBy { it.value.firstMs }.mapIndexed { i, e -> e.key to i }.toMap()
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    // 주행을 시작하면 사용자가 옮겨 둔 화면을 이번 여행 범위로 되돌린다.
+    LaunchedEffect(interactive) {
+        if (!interactive) {
+            zoom = 1f
+            pan = Offset.Zero
+        }
     }
+    val gestures = if (interactive) {
+        Modifier
+            .pointerInput(Unit) {
+                detectTransformGestures { centroid, panChange, zoomChange, _ ->
+                    val newZoom = (zoom * zoomChange).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                    val applied = newZoom / zoom
+                    // 손가락 사이 지점을 중심으로 확대되도록 이동량을 보정한다.
+                    pan = (pan - centroid) * applied + centroid + panChange
+                    zoom = newZoom
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(onDoubleTap = {
+                    zoom = 1f
+                    pan = Offset.Zero
+                })
+            }
+    } else {
+        Modifier
+    }
+    val order = remember(visits) {
+        visits.entries.sortedBy { it.value.firstMs }.mapIndexed { i, e -> e.key to i }.toMap()
+    }
+    // 읍·면·동은 구역이 촘촘해 경계선을 가늘게
+    val borderWidth = if (index.level == Level.DONG) 0.5f else 1.2f
     val provinceCenters = remember(index) {
         index.regions.groupBy { it.provinceCode }.mapValues { (_, rs) ->
             Pair(rs.map { (it.minLat + it.maxLat) / 2 }.average(), rs.map { (it.minLon + it.maxLon) / 2 }.average()) to rs.first().province
@@ -94,35 +145,45 @@ fun TripMap(index: RegionIndex, trip: TripState, modifier: Modifier = Modifier) 
     }
     val pathCache = remember(index) { HashMap<Pair<Size, Viewport>, List<Pair<Region, Path>>>() }
 
-    Canvas(modifier) {
-        val projection = Projection(size, viewport)
+    Canvas(modifier.clipToBounds().then(gestures)) {
+        // 경계 Path는 기본 화면(1배) 기준으로 한 번 만들고, 끌기·확대는 변환으로 처리한다.
+        val base = Projection(size, viewport)
         val paths = pathCache.getOrPut(size to viewport) {
             if (pathCache.size > 4) pathCache.clear()
-            index.regions.filter(viewport::intersects).map { region ->
+            // 끌어서 옮기면 범위 밖도 보이므로 전국을 다 만든다.
+            index.regions.map { region ->
                 val path = Path()
                 region.rings.forEach { ring ->
-                    path.moveTo(projection.x(ring[0]), projection.y(ring[1]))
-                    for (i in 2 until ring.size step 2) path.lineTo(projection.x(ring[i]), projection.y(ring[i + 1]))
+                    path.moveTo(base.x(ring[0]), base.y(ring[1]))
+                    for (i in 2 until ring.size step 2) path.lineTo(base.x(ring[i]), base.y(ring[i + 1]))
                     path.close()
                 }
                 region to path
             }
         }
         drawRect(Palette.Sea)
-        paths.forEach { (region, path) ->
-            val visit = trip.visits[region.code]
-            drawPath(path, if (visit == null) Palette.Unvisited else rainbow(order[region.code] ?: 0, visit.state))
-            drawPath(path, Color.White, style = Stroke(width = 1.2f))
+        withTransform({
+            translate(pan.x, pan.y)
+            scale(zoom, zoom, pivot = Offset.Zero)
+        }) {
+            paths.forEach { (region, path) ->
+                val visit = visits[region.code]
+                drawPath(path, if (visit == null) Palette.Unvisited else rainbow(order[region.code] ?: 0, visit.state))
+                // 확대해도 경계선 두께는 그대로 보이게
+                drawPath(path, Color.White, style = Stroke(width = borderWidth / zoom))
+            }
         }
-        drawProvinceLabels(projection, provinceCenters.values, viewport)
+        // 선·글자·핀은 확대와 상관없이 같은 크기로 그린다.
+        val projection = Projection(size, viewport, zoom, pan)
+        drawProvinceLabels(projection, provinceCenters.values, viewport, zoom)
         drawTrack(projection, trip.track)
-        drawPins(projection, trip)
+        drawPins(projection, trip, index.level)
     }
 }
 
-private fun DrawScope.drawProvinceLabels(p: Projection, centers: Collection<Pair<Pair<Double, Double>, String>>, v: Viewport) {
+private fun DrawScope.drawProvinceLabels(p: Projection, centers: Collection<Pair<Pair<Double, Double>, String>>, v: Viewport, zoom: Float) {
     // 전국 보기에서는 이름이 겹치므로 확대했을 때만, 도 단위 이름만 보인다.
-    if (v.maxLon - v.minLon > 4.0) return
+    if ((v.maxLon - v.minLon) / zoom > 4.0) return
     val paint = Paint().apply {
         isAntiAlias = true
         textAlign = Paint.Align.CENTER
@@ -133,8 +194,10 @@ private fun DrawScope.drawProvinceLabels(p: Projection, centers: Collection<Pair
     centers.forEach { (center, name) ->
         if (!name.endsWith("도")) return@forEach
         val (lat, lon) = center
-        if (lon < v.minLon || lon > v.maxLon || lat < v.minLat || lat > v.maxLat) return@forEach
-        drawContext.canvas.nativeCanvas.drawText(name, p.x(lon), p.y(lat), paint)
+        val x = p.x(lon)
+        val y = p.y(lat)
+        if (x < 0 || x > size.width || y < 0 || y > size.height) return@forEach
+        drawContext.canvas.nativeCanvas.drawText(name, x, y, paint)
     }
 }
 
@@ -148,16 +211,18 @@ private fun DrawScope.drawTrack(p: Projection, track: List<TrackPoint>) {
 }
 
 /** 출발점, 머문 곳, 현재 위치에 이름표를 단다. */
-private fun DrawScope.drawPins(p: Projection, trip: TripState) {
+private fun DrawScope.drawPins(p: Projection, trip: TripState, level: Level) {
     if (trip.track.isEmpty()) return
     val pins = mutableListOf<Pair<TrackPoint, String>>()
     val first = trip.track.first()
     trip.events.firstOrNull { it.kind == EventKind.START }?.let { pins += first to it.detail.substringBefore("에서 출발") }
-    trip.events.filter { it.kind == EventKind.STAY }.forEach { e ->
+    // 핀 이름은 읽기 쉬운 시·군·구 기준(읍·면·동 이름은 너무 잘다).
+    trip.events.filter { it.kind == EventKind.STAY && it.level == Level.SGG }.forEach { e ->
         // 머문 이벤트 시각에 가장 가까운 점
-        trip.track.minByOrNull { kotlin.math.abs(it.timeMs - e.timeMs) }?.let { pins += it to e.title.substringBefore(" 머묾").let(::shortName) }
+        trip.track.minByOrNull { kotlin.math.abs(it.timeMs - e.timeMs) }?.let { pins += it to TripRecorder.shortName(e.title.substringBefore(" 머묾")) }
     }
-    trip.currentRegion?.let { pins += trip.track.last() to TripRecorder.placeName(it) }
+    val here = if (level == Level.DONG) trip.current[Level.DONG]?.name else trip.current[Level.SGG]?.let(TripRecorder::placeName)
+    here?.let { pins += trip.track.last() to it }
 
     val text = Paint().apply {
         isAntiAlias = true
@@ -176,5 +241,3 @@ private fun DrawScope.drawPins(p: Projection, trip: TripState) {
         drawContext.canvas.nativeCanvas.drawText(label, c.x, top + 30f, text)
     }
 }
-
-private fun shortName(n: String) = if (n.length > 2 && (n.endsWith("시") || n.endsWith("군") || n.endsWith("구"))) n.dropLast(1) else n
