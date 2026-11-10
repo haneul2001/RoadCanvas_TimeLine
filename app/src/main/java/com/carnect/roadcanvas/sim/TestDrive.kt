@@ -150,7 +150,7 @@ class TestDrive(
             }
             recorder.feed(pos.first, pos.second, simTime)
             lastFeedSim = simTime
-            val remaining = km(pos, path.lastOrNull() ?: pos) + remainingPath(path, pathIndex)
+            val remaining = (path.getOrNull(pathIndex)?.let { km(pos, it) } ?: 0.0) + remainingPath(path, pathIndex)
             _state.value = s.copy(
                 status = "${target.name}로 가는 중",
                 remainingKm = remaining,

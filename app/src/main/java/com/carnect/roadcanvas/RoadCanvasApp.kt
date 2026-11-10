@@ -76,10 +76,27 @@ class RoadCanvasApp : Application() {
             testDrive = TestDrive(this, recorder, plan, road, ::ensureRecording) { TripService.stop(this@RoadCanvasApp) }
             // 내비 도착 이벤트와 차 위치를 계획에 넘긴다(에뮬레이터 내비는 GPS 주입으로 움직이지 않아 위치 판정이 주로 쓰인다).
             launch { naviRepo.events.collect(plan::onNavi) }
+            // 테스트 주행 중에는 내비 화면 속 차가 움직이지 않으므로, 경로가 잡히면 지도가 칠해지는 우리 화면을 다시 앞으로 가져온다.
+            launch {
+                naviRepo.events.collect { e ->
+                    val routed = e is com.carnect.roadcanvas.navi.NaviEvent.RouteStarted || e is com.carnect.roadcanvas.navi.NaviEvent.Error
+                    if (routed && testDrive?.state?.value?.running == true) {
+                        kotlinx.coroutines.delay(1_500)
+                        bringToFront()
+                    }
+                }
+            }
             launch { recorder.state.collect { s -> s.track.lastOrNull()?.takeIf { s.recording }?.let { plan.onLocation(it.lat, it.lon) } } }
             _regions.value = indexes
             Log.i(TAG, "regions loaded: " + indexes.values.joinToString { "${it.level.label} ${it.regions.size}" })
         }
+    }
+
+    private fun bringToFront() {
+        val intent = android.content.Intent(this, MainActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        runCatching { startActivity(intent) }.onFailure { Log.w(TAG, "bring to front failed", it) }
+        Log.i(TAG, "test drive: app brought to front")
     }
 
     /** 길 안내·테스트 주행을 시작할 때 여행 기록을 켠다(위치 권한이 있을 때만). */

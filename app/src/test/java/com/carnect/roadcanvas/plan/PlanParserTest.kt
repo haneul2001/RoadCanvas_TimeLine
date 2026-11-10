@@ -52,4 +52,10 @@ class PlanParserTest {
         val cmd = parse("속초 해변 갔다가 낙산사") as PlanCommand.NewPlan
         assertEquals(listOf("속초 해변", "낙산사"), cmd.stops.map { it.name })
     }
+
+    @Test
+    fun `부산은 부산광역시로 찾는다(장흥 부산면이 아님)`() {
+        val p = places.find("부산으로", 37.5663 to 126.9779)!!
+        org.junit.Assert.assertEquals("부산", p.name)
+    }
 }

@@ -191,6 +191,16 @@ class MainActivity : ComponentActivity() {
                                 buildString {
                                     append("×${drive.speedX} · ${drive.status}")
                                     drive.remainingKm?.let { append(" · 남은 ${it.toInt()}km") }
+                                    // 지금 위치를 실시간으로: 시·군·구 + 읍·면·동, 좌표, 속도
+                                    val p = trip.track.lastOrNull()
+                                    if (p != null) {
+                                        val sgg = trip.current[Level.SGG]
+                                        val dong = trip.current[Level.DONG]?.name
+                                        append("\n지금 ")
+                                        append(listOfNotNull(sgg?.province, sgg?.name, dong).distinct().joinToString(" ").ifEmpty { "위치 확인 중" })
+                                        append(" (%.4f, %.4f)".format(p.lat, p.lon))
+                                        append(if (drive.status.endsWith("가는 중")) " · 시속 ${drive.kmh}km" else " · 정차")
+                                    }
                                 }
                             } else {
                                 null

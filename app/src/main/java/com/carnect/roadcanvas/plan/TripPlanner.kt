@@ -140,7 +140,7 @@ class TripPlanner(
         _state.update { PlanState(stops = ordered, phase = PlanPhase.PROPOSED, heard = it.heard) }
         val first = ordered.first()
         say(
-            "${ordered.joinToString(", ") { it.name }} 순서로 안내할게요. " +
+            (if (ordered.size == 1) "${first.name}까지 안내할게요. " else "${ordered.joinToString(", ") { it.name }} 순서로 안내할게요. ") +
                 "첫 목적지 ${first.name}까지 직선으로 약 ${first.distanceKmTo(start.first, start.second).toInt()}km예요. 출발이라고 말씀해 주세요."
         )
     }

@@ -231,13 +231,13 @@ private fun ReplayBar(replay: Replay, frame: TripState, progress: Float, onStop:
 @Composable
 private fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop: () -> Unit, modifier: Modifier) {
     Row(
-        modifier.width(600.dp).clip(RoundedCornerShape(18.dp)).background(Palette.Ink.copy(alpha = 0.88f))
+        modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Palette.Ink.copy(alpha = 0.88f))
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text("테스트 주행", fontSize = 14.sp, color = Palette.Amber, fontWeight = FontWeight.Bold)
-            Text(line, fontSize = 18.sp, color = Color.White, maxLines = 2)
+            Text(line, fontSize = 17.sp, color = Color.White, maxLines = 3, lineHeight = 22.sp)
         }
         if (waiting) {
             Box(
