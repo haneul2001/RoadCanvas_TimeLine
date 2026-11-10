@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
                             indexes = regions,
                             trip = trip,
                             parked = vehicle.parked,
+                            driving = vehicle.gear != null && !vehicle.parked,
                             onToggleTrip = { toggleTrip(trip.recording) },
                             onFeature = { f ->
                                 when {

@@ -50,8 +50,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.carnect.roadcanvas.region.Level
@@ -66,24 +72,56 @@ enum class Feature(val title: String, val caption: String, val ready: Boolean) {
     AUTO_CANVAS("Auto Canvas", "주행 경로 자동 색칠", true),
     CANVAS_QUEST("Canvas Quest", "미방문 지역 추천", false),
     SMART_DETOUR("Smart Detour", "최소 우회 탐험", false),
-    ROUTE_REPLAY("Route Replay", "타임랩스 재생", false),
+    ROUTE_REPLAY("Route Replay", "타임랩스 재생", true),
     TIMELINE("TimeLine", "여행 기록 타임라인", true),
     COLLECTION("Collection", "스티커 · 미션", false),
     VOICE_PLANNER("Voice Planner", "음성 다구간 여행 계획", false),
     SETTINGS("설정 · 개인정보", "", true),
 }
 
+/** 여행 전체를 재생하는 시간(여행 길이와 상관없이 일정하게). */
+private const val REPLAY_MS = 14_000
+
 @Composable
 fun HomeScreen(
     indexes: Map<Level, RegionIndex>?,
     trip: TripState,
     parked: Boolean,
+    /** 기어를 확실히 P가 아닌 단으로 놓았을 때(기어를 아직 모르면 false). */
+    driving: Boolean,
     onToggleTrip: () -> Unit,
     onFeature: (Feature) -> Unit,
 ) {
     // 색칠 기준. 기본은 시·군·구.
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
+
+    // 타임랩스: 시작할 때의 기록을 붙잡아 두고 진행률(0~1)에 따라 그 시점의 상태를 그린다.
+    var replay by remember { mutableStateOf<Replay?>(null) }
+    var replayRun by remember { mutableIntStateOf(0) }
+    val progress = remember { Animatable(0f) }
+    fun startReplay() {
+        val r = indexes?.let { Replay(trip, it) }?.takeIf { it.playable } ?: return
+        replay = r
+        replayRun++
+    }
+    LaunchedEffect(replayRun) {
+        if (replayRun == 0) return@LaunchedEffect
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(REPLAY_MS, easing = LinearEasing))
+        delay(1_500)
+        replay = null
+    }
+    // 주행하다 P로 바꾸면(주차) 이번 여행을 자동으로 재생한다.
+    var wasDriving by remember { mutableStateOf(false) }
+    LaunchedEffect(parked, driving) {
+        if (parked && wasDriving) startReplay()
+        wasDriving = driving
+    }
+    val frame = replay?.let { it.frameAt(it.timeAt(progress.value)) }
+    val shown = frame ?: trip
+    val onFeatureTap: (Feature) -> Unit = { f -> if (f == Feature.ROUTE_REPLAY) startReplay() else onFeature(f) }
+
     Column(
         Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 28.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -92,20 +130,61 @@ fun HomeScreen(
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(330.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 VoiceBubble()
-                StatCards(indexes, level, trip, Modifier.weight(1f))
+                StatCards(indexes, level, shown, Modifier.weight(1f))
             }
             Box(
                 Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea),
             ) {
-                if (index != null) TripMap(index, trip, interactive = parked, Modifier.fillMaxSize())
+                if (index != null) TripMap(index, trip, interactive = parked && replay == null, Modifier.fillMaxSize(), frame = frame)
                 LevelSelector(level, onSelect = { level = it }, Modifier.align(Alignment.TopStart).padding(14.dp))
-                MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))
+                val r = replay
+                if (r != null && frame != null) {
+                    ReplayBar(r, frame, progress.value, onStop = { replay = null }, Modifier.align(Alignment.BottomStart).padding(14.dp))
+                } else {
+                    MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))
+                }
             }
-            TimelineCard(trip.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
+            TimelineCard(shown.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
         }
-        ActionRow(trip.recording, parked, onToggleTrip, onFeature)
+        ActionRow(trip.recording, parked, onToggleTrip, onFeatureTap)
         InfoChips(parked)
-        Launcher(parked, onFeature)
+        Launcher(parked, onFeatureTap)
+    }
+}
+
+/** 타임랩스 재생 중 지도 아래에 띄우는 막대: 시각 · 거리 · 지금 지역 · 진행 · 멈춤. */
+@Composable
+private fun ReplayBar(replay: Replay, frame: TripState, progress: Float, onStop: () -> Unit, modifier: Modifier) {
+    val time = replay.timeAt(progress)
+    val day = java.time.temporal.ChronoUnit.DAYS.between(
+        java.time.Instant.ofEpochMilli(replay.startMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate(),
+        java.time.Instant.ofEpochMilli(time).atZone(java.time.ZoneId.systemDefault()).toLocalDate(),
+    ) + 1
+    val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.KOREA).format(java.util.Date(time))
+    Row(
+        modifier.width(560.dp).clip(RoundedCornerShape(18.dp)).background(Palette.Ink.copy(alpha = 0.88f))
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(44.dp).clip(CircleShape).background(Color.White).clickable(onClick = onStop),
+            contentAlignment = Alignment.Center,
+        ) { Box(Modifier.size(14.dp).background(Palette.Ink)) }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "타임랩스 · Day $day $clock · ${TripRecorder.formatKm(replay.distanceAt(time) / 1000)}",
+                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1,
+            )
+            Text(frame.current[Level.SGG]?.toString()?.substringBefore("(") ?: "출발 전", fontSize = 15.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 1)
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                color = Palette.Teal,
+                trackColor = Color.White.copy(alpha = 0.25f),
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+            )
+        }
     }
 }
 

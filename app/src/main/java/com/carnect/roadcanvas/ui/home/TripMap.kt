@@ -100,9 +100,17 @@ fun rainbow(order: Int, state: VisitState): Color {
  * 두 번 탭하면 이번 여행 범위로 돌아온다.
  */
 @Composable
-fun TripMap(index: RegionIndex, trip: TripState, interactive: Boolean, modifier: Modifier = Modifier) {
-    val visits = trip.visitsAt(index.level)
-    val tripRegions = trip.trip?.let { t -> visits.filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
+fun TripMap(
+    index: RegionIndex,
+    trip: TripState,
+    interactive: Boolean,
+    modifier: Modifier = Modifier,
+    /** 타임랩스 재생 중이면 그 순간의 상태. 보이는 범위는 여행 전체([trip]) 기준으로 고정한다. */
+    frame: TripState? = null,
+) {
+    val tripRegions = trip.trip?.let { t -> trip.visitsAt(index.level).filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
+    val shown = frame ?: trip
+    val visits = shown.visitsAt(index.level)
     val viewport = remember(tripRegions.size, trip.track.size / 20) { Viewport.around(tripRegions, trip.track) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -133,8 +141,10 @@ fun TripMap(index: RegionIndex, trip: TripState, interactive: Boolean, modifier:
     } else {
         Modifier
     }
-    val order = remember(visits) {
-        visits.entries.sortedBy { it.value.firstMs }.mapIndexed { i, e -> e.key to i }.toMap()
+    // 색 순서는 여행 전체 기준으로 정해 두어 재생 중에도 색이 바뀌지 않게 한다.
+    val allVisits = trip.visitsAt(index.level)
+    val order = remember(allVisits) {
+        allVisits.entries.sortedBy { it.value.firstMs }.mapIndexed { i, e -> e.key to i }.toMap()
     }
     // 읍·면·동은 구역이 촘촘해 경계선을 가늘게
     val borderWidth = if (index.level == Level.DONG) 0.5f else 1.2f
@@ -176,8 +186,8 @@ fun TripMap(index: RegionIndex, trip: TripState, interactive: Boolean, modifier:
         // 선·글자·핀은 확대와 상관없이 같은 크기로 그린다.
         val projection = Projection(size, viewport, zoom, pan)
         drawProvinceLabels(projection, provinceCenters.values, viewport, zoom)
-        drawTrack(projection, trip.track)
-        drawPins(projection, trip, index.level)
+        drawTrack(projection, shown.track)
+        drawPins(projection, shown, index.level)
     }
 }
 
