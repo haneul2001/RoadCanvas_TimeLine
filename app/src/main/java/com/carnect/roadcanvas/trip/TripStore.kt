@@ -1,47 +1,91 @@
 package com.carnect.roadcanvas.trip
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 /**
- * 방문 상태와 주행 좌표를 기기 안에만 저장한다(외부 전송 없음).
- * - 방문 상태: files/visits.json  {"코드": "PASSED", ...}
- * - 좌표: files/track.csv  시각(ms),위도,경도
+ * 여행 기록을 기기 안에만 저장한다(외부 전송 없음).
+ * - visits.json  {"코드": {"s": 상태, "t": 첫 방문 시각, "trip": 여행 id}}
+ * - trips.json   [{"id", "end", "dist"}]
+ * - events.jsonl 타임라인 한 줄에 하나
+ * - track.csv    시각,위도,경도,여행 id
  */
 class TripStore(context: Context) {
 
-    private val visitsFile = File(context.filesDir, "visits.json")
-    private val trackFile = File(context.filesDir, "track.csv")
+    private val dir = context.filesDir
+    private val visitsFile = File(dir, "visits.json")
+    private val tripsFile = File(dir, "trips.json")
+    private val eventsFile = File(dir, "events.jsonl")
+    private val trackFile = File(dir, "track.csv")
 
-    fun loadVisits(): Map<String, VisitState> {
+    fun loadVisits(): Map<String, VisitRecord> = runCatching {
         if (!visitsFile.exists()) return emptyMap()
         val json = JSONObject(visitsFile.readText())
-        return json.keys().asSequence().associateWith { VisitState.valueOf(json.getString(it)) }
-    }
+        json.keys().asSequence().associateWith {
+            val o = json.getJSONObject(it)
+            VisitRecord(VisitState.valueOf(o.getString("s")), o.getLong("t"), o.getLong("trip"))
+        }
+    }.getOrDefault(emptyMap())
 
-    fun saveVisits(states: Map<String, VisitState>) {
+    fun saveVisits(visits: Map<String, VisitRecord>) {
         val json = JSONObject()
-        states.forEach { (code, state) -> json.put(code, state.name) }
+        visits.forEach { (code, v) ->
+            json.put(code, JSONObject().put("s", v.state.name).put("t", v.firstMs).put("trip", v.tripId))
+        }
         visitsFile.writeText(json.toString())
     }
 
-    fun appendPoint(p: TrackPoint) {
-        trackFile.appendText("${p.timeMs},${p.lat},${p.lon}\n")
+    fun loadTrips(): List<Trip> = runCatching {
+        if (!tripsFile.exists()) return emptyList()
+        val array = JSONArray(tripsFile.readText())
+        (0 until array.length()).map {
+            val o = array.getJSONObject(it)
+            Trip(o.getLong("id"), if (o.has("end")) o.getLong("end") else null, o.optDouble("dist", 0.0))
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveTrips(trips: List<Trip>) {
+        val array = JSONArray()
+        trips.forEach { t ->
+            val o = JSONObject().put("id", t.id).put("dist", t.distanceM)
+            t.endMs?.let { o.put("end", it) }
+            array.put(o)
+        }
+        tripsFile.writeText(array.toString())
     }
 
-    fun loadTrack(): List<TrackPoint> {
+    fun appendEvent(e: TimelineEvent) {
+        val o = JSONObject().put("t", e.timeMs).put("trip", e.tripId).put("kind", e.kind.name)
+            .put("title", e.title).put("detail", e.detail)
+        eventsFile.appendText(o.toString() + "\n")
+    }
+
+    fun loadEvents(tripId: Long): List<TimelineEvent> = runCatching {
+        if (!eventsFile.exists()) return emptyList()
+        eventsFile.readLines().filter { it.isNotBlank() }.map(::JSONObject)
+            .filter { it.getLong("trip") == tripId }
+            .map {
+                TimelineEvent(it.getLong("t"), tripId, EventKind.valueOf(it.getString("kind")), it.getString("title"), it.getString("detail"))
+            }
+    }.getOrDefault(emptyList())
+
+    fun appendPoint(p: TrackPoint, tripId: Long) {
+        trackFile.appendText("${p.timeMs},${p.lat},${p.lon},$tripId\n")
+    }
+
+    fun loadTrack(tripId: Long): List<TrackPoint> = runCatching {
         if (!trackFile.exists()) return emptyList()
-        return trackFile.readLines().mapNotNull { line ->
+        trackFile.readLines().mapNotNull { line ->
             val parts = line.split(',')
-            if (parts.size != 3) return@mapNotNull null
+            if (parts.size != 4 || parts[3].toLong() != tripId) return@mapNotNull null
             TrackPoint(parts[0].toLong(), parts[1].toDouble(), parts[2].toDouble())
         }
-    }
+    }.getOrDefault(emptyList())
 
     /** 사용자가 기록을 지울 때. */
     fun clear() {
-        visitsFile.delete()
-        trackFile.delete()
+        listOf(visitsFile, tripsFile, eventsFile, trackFile).forEach { it.delete() }
     }
 }

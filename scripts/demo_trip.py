@@ -1,28 +1,20 @@
 """
 에뮬레이터에 GPS 경로를 주입해 동해안 여행을 압축 재현한다.
 
-서울(광화문) → 가평 → 홍천 → 인제 → 속초(잠시 머묾) → 양양 → 강릉
+경로는 scripts/routes/east_coast.json(실제 도로 모양, fetch_route.py로 생성)을 따라간다.
+서울 → 홍천 → 인제 → 속초(잠시 머묾) → 양양 → 강릉
 
-준비: 에뮬레이터 실행, 앱에서 '여행 기록 시작'
-사용: python scripts/demo_trip.py [점 간격 km, 기본 1.5] [주입 간격 초, 기본 0.4]
+준비: 에뮬레이터 실행, 앱에서 '여행 시작'
+사용: python scripts/demo_trip.py [점 간격 km, 기본 0.5] [주입 간격 초, 기본 0.25]
 """
+import json
 import math
 import subprocess
 import sys
 import time
+from pathlib import Path
 
-ROUTE = [
-    ("광화문", 37.5759, 126.9768),
-    ("구리", 37.5943, 127.1296),
-    ("화도", 37.6500, 127.3000),
-    ("청평", 37.7350, 127.4200),
-    ("홍천", 37.6970, 127.8888),
-    ("인제", 38.0697, 128.1704),
-    ("속초", 38.2070, 128.5918),
-    ("양양", 38.0754, 128.6190),
-    ("강릉", 37.7519, 128.8761),
-]
-STAY_AT = "속초"
+ROUTE_FILE = Path(__file__).resolve().parent / "routes" / "east_coast.json"
 STAY_SECONDS = 40
 
 
@@ -32,29 +24,46 @@ def km(a, b):
     return 2 * 6371 * math.asin(math.sqrt(h))
 
 
+def resample(points, step_km):
+    """도로 좌표열을 따라 step_km 간격의 점을 만든다(굽은 길 모양을 유지)."""
+    out = [points[0]]
+    carry = 0.0
+    for a, b in zip(points, points[1:]):
+        seg = km(a, b)
+        pos = step_km - carry
+        while pos <= seg:
+            t = pos / seg
+            out.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
+            pos += step_km
+        carry = seg - (pos - step_km)
+    if out[-1] != tuple(points[-1]):
+        out.append(tuple(points[-1]))
+    return out
+
+
 def fix(lat, lon):
     # geo fix는 경도, 위도 순서
     subprocess.run(["adb", "emu", "geo", "fix", f"{lon:.6f}", f"{lat:.6f}"], check=True, capture_output=True)
 
 
 def main():
-    step_km = float(sys.argv[1]) if len(sys.argv) > 1 else 1.5
-    interval = float(sys.argv[2]) if len(sys.argv) > 2 else 0.4
+    step_km = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
+    interval = float(sys.argv[2]) if len(sys.argv) > 2 else 0.25
+    route = json.loads(ROUTE_FILE.read_text(encoding="utf-8"))
     total = 0.0
-    for (name_a, *a), (name_b, *b) in zip(ROUTE, ROUTE[1:]):
-        dist = km(a, b)
-        steps = max(1, round(dist / step_km))
-        print(f"{name_a} → {name_b}  {dist:.0f}km", flush=True)
-        for i in range(1, steps + 1):
-            t = i / steps
-            fix(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+    for leg in route["legs"]:
+        points = resample([tuple(p) for p in leg["points"]], step_km)
+        print(f"{leg['from']} → {leg['to']}  {leg['km']:.0f}km", flush=True)
+        for lat, lon in points:
+            fix(lat, lon)
             time.sleep(interval)
-        total += dist
-        if name_b == STAY_AT:
-            print(f"{STAY_AT}에서 {STAY_SECONDS}초 머묾", flush=True)
+        total += leg["km"]
+        if leg["to"] in route["stay_at"]:
+            print(f"{leg['to']}에서 {STAY_SECONDS}초 머묾", flush=True)
+            lat, lon = points[-1]
             end = time.time() + STAY_SECONDS
             while time.time() < end:
-                fix(b[0], b[1])
+                fix(lat, lon)
                 time.sleep(2)
     print(f"완료: 약 {total:.0f}km", flush=True)
 
