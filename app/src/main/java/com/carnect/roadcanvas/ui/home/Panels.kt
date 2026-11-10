@@ -327,53 +327,104 @@ fun DetourScreen(
 
 private val dateFormat = SimpleDateFormat("M월 d일 (E) HH:mm", Locale.KOREA)
 
+/** 기록 보기 묶음 단위. */
+enum class TripPeriod(val label: String) { TRIP("여행별"), WEEK("주간"), MONTH("월별"), YEAR("연도별") }
+
+/** 기간 하나(주·달·해)에 든 여행들. */
+data class PeriodGroup(val key: String, val title: String, val tripIds: List<Long>)
+
+/** 여행을 기간별로 묶는다(최근 기간이 위). 주는 월요일 시작. */
+fun groupTrips(trips: List<Trip>, period: TripPeriod): List<PeriodGroup> {
+    val zone = java.time.ZoneId.systemDefault()
+    fun day(t: Trip) = java.time.Instant.ofEpochMilli(t.startMs).atZone(zone).toLocalDate()
+    return trips.groupBy { t ->
+        val d = day(t)
+        when (period) {
+            TripPeriod.TRIP -> t.id.toString()
+            TripPeriod.WEEK -> d.with(java.time.DayOfWeek.MONDAY).toString()
+            TripPeriod.MONTH -> "${d.year}-${d.monthValue}"
+            TripPeriod.YEAR -> "${d.year}"
+        }
+    }.map { (key, ts) ->
+        val d = day(ts.first())
+        val title = when (period) {
+            TripPeriod.TRIP -> dateFormat.format(Date(ts.first().startMs))
+            TripPeriod.WEEK -> {
+                val mon = d.with(java.time.DayOfWeek.MONDAY)
+                val sun = mon.plusDays(6)
+                "${mon.year}년 ${mon.monthValue}월 ${mon.dayOfMonth}일 ~ ${sun.monthValue}월 ${sun.dayOfMonth}일"
+            }
+            TripPeriod.MONTH -> "${d.year}년 ${d.monthValue}월"
+            TripPeriod.YEAR -> "${d.year}년"
+        }
+        PeriodGroup(key, title, ts.map { it.id }.sorted())
+    }.sortedByDescending { it.tripIds.max() }
+}
+
 @Composable
 fun TripsScreen(
     indexes: Map<Level, RegionIndex>,
     trips: List<Trip>,
     current: TripState,
     load: (Long) -> TripState?,
+    loadPeriod: (List<Long>) -> TripState?,
     onDelete: (Long) -> Unit,
     onClose: () -> Unit,
 ) {
-    val list = trips.filter { it.endMs != null || it.id == current.trip?.id }.reversed()
-    var selectedId by remember { mutableStateOf(list.firstOrNull()?.id) }
-    val selected = remember(selectedId, trips) { selectedId?.let(load) }
+    val finished = trips.filter { it.endMs != null || it.id == current.trip?.id }
+    var period by remember { mutableStateOf(TripPeriod.TRIP) }
+    val groups = remember(finished, period) { groupTrips(finished, period) }
+    var selectedKey by remember(period) { mutableStateOf(groups.firstOrNull()?.key) }
+    val group = groups.firstOrNull { it.key == selectedKey }
+    val selected = remember(group, trips) {
+        group?.let { g -> if (period == TripPeriod.TRIP) load(g.tripIds.first()) else loadPeriod(g.tripIds) }
+    }
     var run by remember { mutableIntStateOf(0) }
     val progress = remember { Animatable(1f) }
-    val replay = remember(selected) { selected?.let { Replay(it, indexes) }?.takeIf { it.playable } }
+    val replay = remember(selected) { selected?.let { Replay(it, indexes, group?.tripIds.orEmpty().toSet()) }?.takeIf { it.playable } }
     LaunchedEffect(run) {
         if (run == 0) return@LaunchedEffect
         progress.snapTo(0f)
-        progress.animateTo(1f, tween(12_000, easing = LinearEasing))
+        progress.animateTo(1f, tween(if (period == TripPeriod.TRIP) 12_000 else 18_000, easing = LinearEasing))
         delay(500)
     }
     var confirmDelete by remember { mutableStateOf<Long?>(null) }
+    val newByTrip = current.visitsAt(Level.SGG).values.groupingBy { it.tripId }.eachCount()
 
-    Panel("여행 기록", "지난 여행을 고르면 지도와 타임랩스로 다시 볼 수 있어요. 기록은 기기 안에만 있어요.", onClose, { PanelIcon(Icons.Filled.List, Palette.Primary) }) {
+    Panel("여행 기록", "여행별·주간·월별·연도별로 묶어 지도와 타임랩스로 다시 볼 수 있어요. 기록은 기기 안에만 있어요.", onClose, { PanelIcon(Icons.Filled.List, Palette.Primary) }) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             LazyColumn(Modifier.width(560.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TripPeriod.entries.forEach { p -> FilterChip(p.label, period == p) { period = p; confirmDelete = null } }
+                    }
+                }
                 item { FrequentPlaces(indexes, current) }
-                if (list.isEmpty()) item { Text("아직 기록된 여행이 없어요.", fontSize = 22.sp, color = Palette.Muted) }
-                items(list, key = { it.id }) { t ->
-                    val isSel = t.id == selectedId
-                    val newSgg = current.visitsAt(Level.SGG).values.count { it.tripId == t.id }
+                if (groups.isEmpty()) item { Text("아직 기록된 여행이 없어요.", fontSize = 22.sp, color = Palette.Muted) }
+                items(groups, key = { it.key }) { g ->
+                    val isSel = g.key == selectedKey
+                    val ts = g.tripIds.mapNotNull { id -> finished.firstOrNull { it.id == id } }
+                    val km = ts.sumOf { it.distanceM } / 1000
+                    val newSgg = g.tripIds.sumOf { newByTrip[it] ?: 0 }
+                    val single = period == TripPeriod.TRIP
+                    val t = ts.firstOrNull()
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(if (isSel) Palette.PrimarySoft else Palette.Card)
                             .border(if (isSel) 2.dp else 1.dp, if (isSel) Palette.Primary else Palette.Line, RoundedCornerShape(18.dp))
-                            .clickable { selectedId = t.id; confirmDelete = null }.padding(18.dp),
+                            .clickable { selectedKey = g.key; confirmDelete = null }.padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(dateFormat.format(Date(t.startMs)), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                            Text(g.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                             Text(
-                                "${TripRecorder.formatKm(t.distanceM / 1000)} · 새 시·군·구 ${newSgg}곳" + if (t.active) " · 기록 중" else "",
+                                (if (single) "" else "여행 ${ts.size}번 · ") + "${TripRecorder.formatKm(km)} · 새 시·군·구 ${newSgg}곳" +
+                                    if (single && t?.active == true) " · 기록 중" else "",
                                 fontSize = 17.sp, color = Palette.Muted,
                             )
                         }
-                        if (!t.active) {
+                        if (single && t != null && !t.active) {
                             if (confirmDelete == t.id) {
-                                Pill("지우기", Color.White, Palette.Orange, { onDelete(t.id); confirmDelete = null; selectedId = null }, size = 18)
+                                Pill("지우기", Color.White, Palette.Orange, { onDelete(t.id); confirmDelete = null; selectedKey = null }, size = 18)
                             } else {
                                 Box(Modifier.size(48.dp).clip(CircleShape).clickable { confirmDelete = t.id }, contentAlignment = Alignment.Center) {
                                     Icon(Icons.Filled.Delete, "지우기", tint = Palette.Muted)
@@ -391,13 +442,15 @@ fun TripsScreen(
                     TripMap(index, selected, interactive = !playing, Modifier.fillMaxSize(), frame = frame)
                     Row(Modifier.align(Alignment.BottomStart).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Pill(if (playing) "재생 중…" else "▶ 타임랩스", Color.White, Palette.Primary, { run++ }, enabled = replay != null && !playing)
+                        Spacer(Modifier.width(12.dp))
                         if (confirmDelete != null) {
-                            Spacer(Modifier.width(12.dp))
-                            Text("지운 여행은 되돌릴 수 없어요. 그 여행에서 처음 칠한 곳과 스티커도 지워져요.", fontSize = 17.sp, color = Palette.Orange)
+                            Text("지운 여행은 되돌릴 수 없어요. 그 여행에서만 간 곳과 스티커도 지워져요.", fontSize = 17.sp, color = Palette.Orange)
+                        } else if (group != null && period != TripPeriod.TRIP) {
+                            Text("${group.title} · 여행 ${group.tripIds.size}번을 이어서 재생 (여행 사이 빈 시간은 건너뜀)", fontSize = 17.sp, color = Palette.Ink)
                         }
                     }
                 } else {
-                    Text("왼쪽에서 여행을 골라 주세요.", fontSize = 22.sp, color = Palette.Muted, modifier = Modifier.align(Alignment.Center))
+                    Text("왼쪽에서 여행이나 기간을 골라 주세요.", fontSize = 22.sp, color = Palette.Muted, modifier = Modifier.align(Alignment.Center))
                 }
             }
         }
@@ -467,9 +520,12 @@ fun SettingsScreen(
 val DRIVE_EXAMPLES = listOf(
     "속초로",
     "강릉으로",
+    "부산으로",
     "속초, 양양, 강릉 들렀다가 서울로",
     "홍천, 인제 들렀다가 속초로",
-    "부산으로",
+    "대전, 대구 들렀다가 부산으로",
+    "전주, 여수 들렀다가 광주로",
+    "경주, 부산 들렀다가 강릉으로",
 )
 
 @Composable
@@ -509,7 +565,7 @@ fun TestDriveScreen(
                     com.carnect.roadcanvas.sim.TestDrive.SPEEDS.forEach { x -> FilterChip("×$x", drive.speedX == x) { onSpeed(x) } }
                 }
                 Text(
-                    "서울~강릉 구간은 실제 도로 모양을 따라가고, 그 밖은 직선으로 가요. 배속 중에도 머문 곳 판정은 실제 시간 기준으로 계산돼요.",
+                    "서울·춘천·홍천·인제·속초·양양·강릉·대전·전주·광주·여수·대구·경주·부산 사이는 실제 도로 모양(미리 받아 둔 OpenStreetMap 경로)을 따라가고, 그 밖은 직선으로 가요. 배속 중에도 머문 곳 판정은 실제 시간 기준이에요.",
                     fontSize = 16.sp, color = Palette.Muted,
                 )
                 Spacer(Modifier.weight(1f))

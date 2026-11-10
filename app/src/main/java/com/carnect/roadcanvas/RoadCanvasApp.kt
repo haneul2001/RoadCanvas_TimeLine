@@ -72,7 +72,7 @@ class RoadCanvasApp : Application() {
                 ensureRecording = ::ensureRecording,
             )
             planner = plan
-            val road = withContext(Dispatchers.IO) { assets.open("demo_roads.json").use(TestDrive::loadRoad) }
+            val road = withContext(Dispatchers.IO) { assets.open("city_roads.json").use(com.carnect.roadcanvas.sim.RoadBook::load) }
             testDrive = TestDrive(this, recorder, plan, road, ::ensureRecording) { TripService.stop(this@RoadCanvasApp) }
             // 내비 도착 이벤트와 차 위치를 계획에 넘긴다(에뮬레이터 내비는 GPS 주입으로 움직이지 않아 위치 판정이 주로 쓰인다).
             launch { naviRepo.events.collect(plan::onNavi) }

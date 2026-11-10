@@ -217,7 +217,7 @@ private fun DrawScope.drawTrack(p: Projection, track: List<TrackPoint>) {
     if (track.size < 2) return
     val line = Path()
     line.moveTo(p.x(track[0].lon), p.y(track[0].lat))
-    track.drop(1).forEach { line.lineTo(p.x(it.lon), p.y(it.lat)) }
+    track.drop(1).forEach { if (it.newSegment) line.moveTo(p.x(it.lon), p.y(it.lat)) else line.lineTo(p.x(it.lon), p.y(it.lat)) }
     drawPath(line, Color.White, style = Stroke(width = 11f, cap = StrokeCap.Round, join = StrokeJoin.Round))
     drawPath(line, Palette.Primary, style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
 }

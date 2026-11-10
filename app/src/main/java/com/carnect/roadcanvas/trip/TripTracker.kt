@@ -11,7 +11,8 @@ import kotlin.math.sqrt
 /** 방문 상태. 통과만으로는 방문으로 치지 않고, 머문 뒤 사용자가 확인해야 확정된다. */
 enum class VisitState { PASSED, STAY_CANDIDATE, CONFIRMED }
 
-data class TrackPoint(val timeMs: Long, val lat: Double, val lon: Double)
+/** 위치 점. [newSegment]는 여러 여행을 이어 볼 때 앞 점과 선을 잇지 않는 첫 점(저장하지 않음). */
+data class TrackPoint(val timeMs: Long, val lat: Double, val lon: Double, val newSegment: Boolean = false)
 
 sealed interface TripEvent {
     /** 처음 지나간 시·군·구. */

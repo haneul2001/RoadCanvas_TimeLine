@@ -43,6 +43,13 @@ class TripPlanner(
     private val _state = MutableStateFlow(PlanState())
     val state: StateFlow<PlanState> = _state.asStateFlow()
     private var announceEta = false
+
+    /**
+     * 테스트 주행 중이면 true. 에뮬레이터 내비는 자기 기본 위치에서 경로를 계산하므로
+     * 그 예상 시간을 우리 차 기준인 것처럼 말하지 않는다.
+     */
+    @Volatile
+    var simulated = false
     /** 테스트 주행처럼 다른 곳에서 출발할 때 순서 계산 기준. */
     private var startOverride: Pair<Double, Double>? = null
 
@@ -117,6 +124,10 @@ class TripPlanner(
         when (event) {
             is NaviEvent.RouteStarted -> if (announceEta && s.phase == PlanPhase.GUIDING) {
                 announceEta = false
+                if (simulated) {
+                    say("내비에 ${s.target?.name ?: "목적지"} 경로를 넣었어요. 테스트 주행은 이 지도에서 움직여요.")
+                    return
+                }
                 val min = event.durationSec / 60
                 val time = if (min >= 60) "${min / 60}시간 ${min % 60}분" else "${min}분"
                 say("${s.target?.name}까지 약 $time 걸려요.")

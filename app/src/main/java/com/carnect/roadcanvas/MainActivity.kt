@@ -117,6 +117,7 @@ class MainActivity : ComponentActivity() {
                             TripsScreen(
                                 indexes!!, trips, trip,
                                 load = recorder::loadTrip,
+                                loadPeriod = recorder::loadPeriod,
                                 onDelete = { recorder.deleteTrip(it); toast("여행 기록을 지웠어요") },
                                 onClose = home,
                             )
@@ -199,7 +200,7 @@ class MainActivity : ComponentActivity() {
                                         append("\n지금 ")
                                         append(listOfNotNull(sgg?.province, sgg?.name, dong).distinct().joinToString(" ").ifEmpty { "위치 확인 중" })
                                         append(" (%.4f, %.4f)".format(p.lat, p.lon))
-                                        append(if (drive.status.endsWith("가는 중")) " · 시속 ${drive.kmh}km" else " · 정차")
+                                        append(if (drive.status.contains("가는 중")) " · 시속 ${drive.kmh}km" else " · 정차")
                                     }
                                 }
                             } else {

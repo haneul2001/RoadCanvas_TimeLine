@@ -90,6 +90,42 @@ class TripRecorder(
         )
     }
 
+    /**
+     * 여러 여행(주간·월별·연도별)을 하나로 이어 본다. 여행 사이의 빈 시간은 빼서(1분 간격으로 붙여)
+     * 타임랩스가 이동한 시간 위주로 흐르게 한다. 그 기간 이전에 칠한 곳은 처음부터 칠해 둔다.
+     */
+    fun loadPeriod(tripIds: List<Long>): TripState? {
+        val list = trips.filter { it.id in tripIds }.sortedBy { it.id }
+        if (list.isEmpty()) return null
+        if (list.size == 1) return loadTrip(list.first().id)
+        val shift = HashMap<Long, Long>()
+        val track = mutableListOf<TrackPoint>()
+        val events = mutableListOf<TimelineEvent>()
+        var cursor = list.first().startMs
+        list.forEach { t ->
+            val pts = if (t.id == _state.value.trip?.id) _state.value.track else store.loadTrack(t.id)
+            val start = pts.firstOrNull()?.timeMs ?: t.startMs
+            val d = start - cursor
+            shift[t.id] = d
+            pts.forEachIndexed { i, p -> track += p.copy(timeMs = p.timeMs - d, newSegment = i == 0 && track.isNotEmpty()) }
+            val evs = if (t.id == _state.value.trip?.id) _state.value.events else store.loadEvents(t.id)
+            evs.forEach { e -> events += e.copy(timeMs = e.timeMs - d) }
+            cursor = (track.lastOrNull()?.timeMs ?: cursor) + 60_000
+        }
+        val last = list.last().id
+        val visits = snapshotVisits().mapValues { (_, byCode) ->
+            byCode.filterValues { it.tripId <= last }.mapValues { (_, v) -> shift[v.tripId]?.let { v.copy(firstMs = v.firstMs - it) } ?: v }
+        }
+        val combined = Trip(list.first().id, endMs = track.lastOrNull()?.timeMs ?: list.last().endMs, distanceM = list.sumOf { it.distanceM })
+        return TripState(
+            visits = visits,
+            trip = combined,
+            track = track,
+            events = events.sortedBy { it.timeMs },
+            stickers = stickers.filter { it.tripId <= last },
+        )
+    }
+
     /** 여행 하나를 지운다. 그 여행에서 처음 칠한 곳과 받은 스티커도 함께 지운다. */
     fun deleteTrip(tripId: Long) {
         if (_state.value.recording && _state.value.trip?.id == tripId) return
