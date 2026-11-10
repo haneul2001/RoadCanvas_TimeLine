@@ -3,7 +3,9 @@ package com.carnect.roadcanvas.navi
 import ai.pleos.playground.navi.constants.NaviErrorCode
 import ai.pleos.playground.navi.constants.NavigationStatus
 import ai.pleos.playground.navi.constants.RouteOption
+import ai.pleos.playground.navi.constants.WaypointIndex
 import ai.pleos.playground.navi.data.DestinationArrivedInfo
+import ai.pleos.playground.navi.data.RequestWaypointInfo
 import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteStartInfo
 import ai.pleos.playground.navi.data.WaypointArrivedInfo
@@ -92,6 +94,13 @@ class NaviRepo(context: Context) {
             RouteInfo(latitude, longitude, null, null, name, "", "", "", RouteOption.RECOMMENDED, "", false)
         )
     }
+
+    /** 지금 경로에 경유지를 하나 넣는다(SDK는 경유지를 최대 2곳까지만 받는다). */
+    fun addWaypoint(name: String, latitude: Double, longitude: Double) = call("addWaypoint") {
+        navi.addWaypoint(RequestWaypointInfo(latitude, longitude, name, WaypointIndex.FIRST, "", "", "", ""))
+    }
+
+    fun cancelRoute() = call("cancelRoute") { navi.cancelRoute() }
 
     private fun emit(event: NaviEvent) {
         Log.d(TAG, "navi $event")

@@ -29,9 +29,9 @@ sealed interface TripEvent {
 class TripTracker(
     private val index: RegionIndex,
     initialStates: Map<String, VisitState> = emptyMap(),
-    private val stayMs: Long = 5 * 60_000L,
+    var stayMs: Long = 5 * 60_000L,
     private val stayRadiusM: Double = 300.0,
-    private val maxSpeedMps: Double = 70.0,
+    var maxSpeedMps: Double = 70.0,
 ) {
     private val states = initialStates.toMutableMap()
     val visitStates: Map<String, VisitState> get() = states
@@ -68,6 +68,13 @@ class TripTracker(
             events += TripEvent.StayCandidate(region)
         }
         return true to events
+    }
+
+    /** 새 여행을 시작할 때: 이전 여행의 마지막 점과 비교하지 않는다. */
+    fun resetPosition() {
+        last = null
+        anchor = null
+        currentRegion = null
     }
 
     /** 사용자가 방문을 확인했을 때. */

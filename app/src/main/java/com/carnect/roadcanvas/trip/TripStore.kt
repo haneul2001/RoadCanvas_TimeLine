@@ -20,6 +20,7 @@ class TripStore(context: Context) {
     private val eventsFile = File(dir, "events.jsonl")
     private val trackFile = File(dir, "track.csv")
     private val stickersFile = File(dir, "stickers.json")
+    private val zonesFile = File(dir, "zones.json")
 
     private fun visitsFile(level: Level) = File(dir, "visits_${level.name.lowercase()}.json")
 
@@ -44,14 +45,16 @@ class TripStore(context: Context) {
         val json = JSONObject(file.readText())
         json.keys().asSequence().associateWith {
             val o = json.getJSONObject(it)
-            VisitRecord(VisitState.valueOf(o.getString("s")), o.getLong("t"), o.getLong("trip"))
+            val trip = o.getLong("trip")
+            val ids = o.optJSONArray("trips")?.let { a -> (0 until a.length()).map(a::getLong) } ?: listOf(trip)
+            VisitRecord(VisitState.valueOf(o.getString("s")), o.getLong("t"), trip, ids)
         }
     }.getOrDefault(emptyMap())
 
     fun saveVisits(level: Level, visits: Map<String, VisitRecord>) {
         val json = JSONObject()
         visits.forEach { (code, v) ->
-            json.put(code, JSONObject().put("s", v.state.name).put("t", v.firstMs).put("trip", v.tripId))
+            json.put(code, JSONObject().put("s", v.state.name).put("t", v.firstMs).put("trip", v.tripId).put("trips", JSONArray(v.tripIds)))
         }
         visitsFile(level).writeText(json.toString())
     }
@@ -106,6 +109,32 @@ class TripStore(context: Context) {
             TrackPoint(parts[0].toLong(), parts[1].toDouble(), parts[2].toDouble())
         }
     }.getOrDefault(emptyList())
+
+    /** 여행 하나를 지운다(경로·타임라인·그 여행에서 처음 칠한 방문·스티커). */
+    fun deleteTrip(tripId: Long) {
+        if (trackFile.exists()) {
+            trackFile.writeText(trackFile.readLines().filter { it.isNotBlank() && !it.endsWith(",$tripId") }.joinToString("") { it + "\n" })
+        }
+        if (eventsFile.exists()) {
+            eventsFile.writeText(
+                eventsFile.readLines().filter { it.isNotBlank() && runCatching { JSONObject(it).getLong("trip") != tripId }.getOrDefault(false) }
+                    .joinToString("") { it + "\n" }
+            )
+        }
+    }
+
+    /** 기록 제외 구역(집·회사 등). 이 원 안의 위치는 저장하지 않는다. */
+    fun loadZones(): List<ExcludedZone> = runCatching {
+        if (!zonesFile.exists()) return emptyList()
+        val a = JSONArray(zonesFile.readText())
+        (0 until a.length()).map { a.getJSONObject(it) }.map { ExcludedZone(it.getString("name"), it.getDouble("lat"), it.getDouble("lon"), it.getDouble("r")) }
+    }.getOrDefault(emptyList())
+
+    fun saveZones(zones: List<ExcludedZone>) {
+        val a = JSONArray()
+        zones.forEach { a.put(JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon).put("r", it.radiusM)) }
+        zonesFile.writeText(a.toString())
+    }
 
     /** 사용자가 기록을 지울 때. */
     fun clear() {

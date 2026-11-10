@@ -70,12 +70,12 @@ import com.carnect.roadcanvas.trip.TripState
 /** 런처 타일. [ready]가 아니면 '준비 중'으로 안내한다. */
 enum class Feature(val title: String, val caption: String, val ready: Boolean) {
     AUTO_CANVAS("Auto Canvas", "주행 경로 자동 색칠", true),
-    CANVAS_QUEST("Canvas Quest", "미방문 지역 추천", false),
-    SMART_DETOUR("Smart Detour", "최소 우회 탐험", false),
+    CANVAS_QUEST("Canvas Quest", "미방문 지역 추천", true),
+    SMART_DETOUR("Smart Detour", "최소 우회 탐험", true),
     ROUTE_REPLAY("Route Replay", "타임랩스 재생", true),
     TIMELINE("TimeLine", "여행 기록 타임라인", true),
     COLLECTION("Collection", "스티커 · 미션", true),
-    VOICE_PLANNER("Voice Planner", "음성 다구간 여행 계획", false),
+    VOICE_PLANNER("Voice Planner", "음성 다구간 여행 계획", true),
     SETTINGS("설정 · 개인정보", "", true),
 }
 
@@ -92,6 +92,18 @@ fun HomeScreen(
     onToggleTrip: () -> Unit,
     onConfirmStay: (String) -> Unit,
     onFeature: (Feature) -> Unit,
+    /** 음성 말풍선에 보일 문장(들은 말 또는 앱이 한 말). */
+    voiceText: String = "",
+    listening: Boolean = false,
+    /** 말풍선을 누르면 바로 듣는다(주행 중에도 음성은 쓸 수 있다). */
+    onVoice: () -> Unit = {},
+    /** 테스트 주행 중이면 상태 한 줄. */
+    simLine: String? = null,
+    /** 테스트 주행이 목적지에서 '출발'을 기다리는 중. */
+    simWaiting: Boolean = false,
+    onSimDepart: () -> Unit = {},
+    onSimStop: () -> Unit = {},
+    onTestDrive: () -> Unit = {},
 ) {
     var showCollection by rememberSaveable { mutableStateOf(false) }
     if (showCollection && indexes != null) {
@@ -143,10 +155,10 @@ fun HomeScreen(
         Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 28.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Header()
+        Header(onTestDrive)
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(330.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                VoiceBubble()
+                VoiceBubble(voiceText, listening, onVoice)
                 StatCards(indexes, level, shown, Modifier.weight(1f))
             }
             Box(
@@ -167,7 +179,8 @@ fun HomeScreen(
                 if (r != null && frame != null) {
                     ReplayBar(r, frame, progress.value, onStop = { replay = null }, Modifier.align(Alignment.BottomStart).padding(14.dp))
                 } else {
-                    MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))
+                    if (simLine == null) MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))
+                    if (simLine != null) SimBar(simLine, simWaiting, onSimDepart, onSimStop, Modifier.align(Alignment.BottomStart).padding(14.dp))
                 }
             }
             TimelineCard(shown.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
@@ -214,8 +227,34 @@ private fun ReplayBar(replay: Replay, frame: TripState, progress: Float, onStop:
     }
 }
 
+/** 테스트 주행 상태 막대: 지금 상태 · 출발 · 멈춤. */
 @Composable
-private fun Header() {
+private fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop: () -> Unit, modifier: Modifier) {
+    Row(
+        modifier.width(600.dp).clip(RoundedCornerShape(18.dp)).background(Palette.Ink.copy(alpha = 0.88f))
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("테스트 주행", fontSize = 14.sp, color = Palette.Amber, fontWeight = FontWeight.Bold)
+            Text(line, fontSize = 18.sp, color = Color.White, maxLines = 2)
+        }
+        if (waiting) {
+            Box(
+                Modifier.clip(RoundedCornerShape(12.dp)).background(Palette.Primary).clickable(onClick = onDepart)
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) { Text("출발", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+            Spacer(Modifier.width(8.dp))
+        }
+        Box(
+            Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White).clickable(onClick = onStop)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        ) { Text("멈춤", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
+    }
+}
+
+@Composable
+private fun Header(onTestDrive: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         AppIcon(Modifier.size(64.dp))
         Spacer(Modifier.width(18.dp))
@@ -230,19 +269,37 @@ private fun Header() {
             )
             Text("차량 이동 데이터를 여행 기록과 다음 계획으로 연결", fontSize = 20.sp, color = Palette.Muted)
         }
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.OrangeSoft).border(1.dp, Palette.Orange, RoundedCornerShape(16.dp))
+                .clickable(onClick = onTestDrive).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.PlayArrow, null, tint = Palette.Orange, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("테스트 주행", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Orange)
+        }
     }
 }
 
 @Composable
-private fun VoiceBubble() {
+private fun VoiceBubble(text: String, listening: Boolean, onVoice: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(Palette.Card)
-            .border(1.dp, Palette.Line, RoundedCornerShape(30.dp)).padding(horizontal = 18.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(if (listening) Palette.OrangeSoft else Palette.Card)
+            .border(if (listening) 2.dp else 1.dp, if (listening) Palette.Orange else Palette.Line, RoundedCornerShape(30.dp))
+            .clickable(onClick = onVoice).padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MicGlyph(Palette.Primary, Modifier.size(28.dp))
+        MicGlyph(if (listening) Palette.Orange else Palette.Primary, Modifier.size(28.dp))
         Spacer(Modifier.width(10.dp))
-        Text("“목적지를 말해 보세요” (준비 중)", fontSize = 18.sp, color = Palette.Muted, maxLines = 1)
+        Text(
+            when {
+                listening && text.isBlank() -> "듣고 있어요…"
+                text.isNotBlank() -> text
+                else -> "“목적지를 말해 보세요”"
+            },
+            fontSize = 18.sp, color = if (text.isNotBlank() || listening) Palette.Ink else Palette.Muted, maxLines = 2,
+        )
     }
 }
 

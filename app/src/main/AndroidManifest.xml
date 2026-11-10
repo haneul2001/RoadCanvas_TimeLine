@@ -12,6 +12,9 @@
     <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
     <!-- 차량 위치(사용자가 여행 기록을 시작할 때 허용을 받는다) -->
     <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
+    <!-- 음성으로 여행 계획 말하기(Voice Planner) -->
+    <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 내비가 앞에 있어도 기록을 이어 가기 위한 포그라운드 서비스 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />

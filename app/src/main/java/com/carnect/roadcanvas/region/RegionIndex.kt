@@ -28,6 +28,21 @@ class Region(
 
     val provinceCode: String get() = code.take(2)
 
+    /** 길 안내 목적지·거리 계산에 쓰는 대표 지점(구역 안에 있는 점). (lat, lon) */
+    val center: Pair<Double, Double> by lazy {
+        val ring = rings.maxBy { it.size }
+        val n = ring.size / 2
+        val lat = (0 until n).sumOf { ring[it * 2 + 1] } / n
+        val lon = (0 until n).sumOf { ring[it * 2] } / n
+        when {
+            contains(lat, lon) -> lat to lon
+            contains((minLat + maxLat) / 2, (minLon + maxLon) / 2) -> (minLat + maxLat) / 2 to (minLon + maxLon) / 2
+            // 모양이 휘어 평균점이 밖에 있으면 경계 위 점 중 평균점에 가장 가까운 점
+            else -> (0 until n).minBy { (ring[it * 2 + 1] - lat).let { d -> d * d } + (ring[it * 2] - lon).let { d -> d * d } }
+                .let { ring[it * 2 + 1] to ring[it * 2] }
+        }
+    }
+
     fun contains(lat: Double, lon: Double): Boolean {
         if (lat < minLat || lat > maxLat || lon < minLon || lon > maxLon) return false
         return rings.any { ringContains(it, lat, lon) }
