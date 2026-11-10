@@ -459,6 +459,13 @@ fun TripsScreen(
 
 // ───────────────────────────── 설정 · 개인정보 ─────────────────────────────
 
+/** 앱에 넣은 외부 데이터의 출처 표시(라이선스 요구 사항). */
+private val DATA_SOURCES = listOf(
+    "행정구역 경계: 통계청 SGIS 행정동 경계(공공누리 제1유형), 가공 vuski/admdongkor(CC BY 4.0), 2026-10-01 기준",
+    "테스트 주행 도로 모양: © OpenStreetMap contributors (ODbL), 경로 계산 OSRM. 미리 받아 앱에 넣었고 실행 중 외부로 위치를 보내지 않음",
+    "명소 좌표: 앱에 넣은 대표 명소 18곳(근사 좌표)",
+)
+
 @Composable
 fun SettingsScreen(
     zones: List<ExcludedZone>,
@@ -509,7 +516,13 @@ fun SettingsScreen(
                     )
                 }
             }
-            Box(Modifier.width(820.dp).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Card)) { status() }
+            Column(Modifier.width(820.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Card)) { status() }
+                CardBox(Modifier.fillMaxWidth()) {
+                    Text("데이터 출처", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    DATA_SOURCES.forEach { Text("· $it", fontSize = 16.sp, color = Palette.Muted) }
+                }
+            }
         }
     }
 }

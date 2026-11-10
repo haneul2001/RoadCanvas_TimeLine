@@ -91,14 +91,16 @@
    ```
 2. Device Manager에서 Automotive → Pleos Connect v2.1.0 기기를 만들고 실행합니다.
    마이크 입력이 필요하면 `scripts/start_emulator.sh`로 실행합니다(`-allow-host-audio` 포함).
-3. Pleos Playground에서 발급받은 키를 `local.properties`에 넣습니다(저장소에는 올리지 않습니다).
-   ```
-   pleos.clientId=...
-   pleos.clientSecret=...
-   ```
-4. 빌드·설치
+3. 빌드·설치(별도 API 키는 필요 없습니다. 쓰는 Pleos SDK는 모두 차량 안 서비스입니다)
    ```bash
    ./gradlew installDebug
+   ```
+   release 빌드를 직접 만들 때는 서명 키 정보를 `local.properties`에 넣습니다(저장소에는 올리지 않습니다). 없으면 서명 없이 만들어집니다.
+   ```
+   release.storeFile=C:/경로/키.jks
+   release.storePassword=...
+   release.keyAlias=...
+   release.keyPassword=...
    ```
 
 에뮬레이터 차량 상태(기어 등)는 Virtual Console로 바꿀 수 있습니다: `adb forward tcp:8088 tcp:8088` 후 브라우저에서 `http://127.0.0.1:8088/`.
@@ -118,8 +120,15 @@ python scripts/demo_trip.py
 ## 데이터 출처
 
 - 행정구역 경계(시·도 / 시·군·구 / 읍·면·동, 2026-10-01 기준): 본 데이터는 통계청 통계지리정보서비스(SGIS, https://sgis.kostat.go.kr)에서 공공누리 제1유형으로 개방한 행정동 경계를 가공한 것이며(가공: [vuski/admdongkor](https://github.com/vuski/admdongkor)), CC BY 4.0으로 배포됩니다. `scripts/build_regions.py`로 단계별로 합치고 단순화해 `app/src/main/assets/regions_*.json`에 포함했습니다.
-- 시연용 도로 경로: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors(ODbL), [OSRM](https://project-osrm.org/) 길찾기 결과
+- 테스트 주행·시연용 도로 경로: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors(ODbL), [OSRM](https://project-osrm.org/) 길찾기 결과. `scripts/fetch_city_roads.py`로 개발 PC에서 미리 받아 `app/src/main/assets/city_roads.json`에 넣었습니다. 앱 설정 화면에도 출처를 표시합니다.
 
 ## APK
 
-제출용 release APK는 `apk/` 폴더에 올릴 예정입니다.
+- 위치: [`apk/CAR-NECT_RoadCanvas_TimeLine_release.apk`](apk/CAR-NECT_RoadCanvas_TimeLine_release.apk) (release 빌드, 서명됨, 약 24MB)
+- 설치: Pleos Connect 에뮬레이터를 켠 뒤
+  ```bash
+  adb install -r apk/CAR-NECT_RoadCanvas_TimeLine_release.apk
+  ```
+  처음 실행하면 위치 권한(여행 시작 시)·마이크 권한(음성 버튼) 허용을 묻습니다.
+- 바로 확인해 보려면 홈 오른쪽 위 **테스트 주행** → 목적지(예: "속초로") → 출발. 가상의 차가 달리며 지도 색칠·타임라인·음성 안내가 진행됩니다.
+- release 빌드는 실제 주행 기준(머문 곳 판정 5분)을 씁니다. `scripts/demo_trip.py`처럼 GPS를 빠르게 주입하는 시연은 debug 빌드용입니다.

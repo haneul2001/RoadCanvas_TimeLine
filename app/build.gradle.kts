@@ -6,11 +6,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// Pleos Playground 키는 저장소에 올리지 않고 local.properties에서 읽는다.
+// 서명 정보는 저장소에 올리지 않고 local.properties에서 읽는다.
 val localProps = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
 }
-fun localProp(key: String) = "\"${localProps.getProperty(key, "")}\""
 
 android {
     namespace = "com.carnect.roadcanvas"
@@ -22,13 +21,24 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+    }
 
-        buildConfigField("String", "PLEOS_CLIENT_ID", localProp("pleos.clientId"))
-        buildConfigField("String", "PLEOS_CLIENT_SECRET", localProp("pleos.clientSecret"))
+    // 릴리스 서명 키(저장소 밖 파일). local.properties에 release.storeFile/storePassword/keyAlias/keyPassword가 없으면 서명 없이 만든다.
+    val storePath = localProps.getProperty("release.storeFile")
+    if (storePath != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(storePath)
+                storePassword = localProps.getProperty("release.storePassword")
+                keyAlias = localProps.getProperty("release.keyAlias")
+                keyPassword = localProps.getProperty("release.keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (storePath != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
