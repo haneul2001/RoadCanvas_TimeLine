@@ -58,4 +58,11 @@ class PlanParserTest {
         val p = places.find("부산으로", 37.5663 to 126.9779)!!
         org.junit.Assert.assertEquals("부산", p.name)
     }
+
+    @Test
+    fun `뭐가 유명해는 명소 질문으로 해석한다`() {
+        val cmd = PlanParser.parse("속초 뭐가 유명해?", places, 37.5663 to 126.9779)
+        org.junit.Assert.assertTrue(cmd is PlanCommand.Ask)
+        org.junit.Assert.assertEquals("속초시", (cmd as PlanCommand.Ask).place.name)
+    }
 }

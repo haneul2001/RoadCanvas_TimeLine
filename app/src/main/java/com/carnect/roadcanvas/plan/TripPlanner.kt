@@ -64,6 +64,7 @@ class TripPlanner(
             PlanCommand.Depart -> depart()
             is PlanCommand.Remove -> remove(cmd.place)
             is PlanCommand.Prioritize -> prioritize(cmd.place, cmd.instead)
+            is PlanCommand.Ask -> say(brief(cmd.place))
             PlanCommand.Unknown -> say("잘 못 알아들었어요. 예를 들어 '속초, 양양, 강릉 들렀다가 서울로'처럼 말해 주세요.")
         }
     }
@@ -141,6 +142,19 @@ class TripPlanner(
         val s = _state.value
         val target = s.target ?: return
         if (s.phase == PlanPhase.GUIDING && target.distanceKmTo(lat, lon) <= ARRIVE_KM) arrived()
+    }
+
+    /** 앱에 담긴 대표 명소로 짧게 소개한다(외부 관광 정보 없이, 있는 사실만). */
+    private fun brief(place: Place): String {
+        val near = com.carnect.roadcanvas.data.Landmarks.all
+            .map { it to place.distanceKmTo(it.lat, it.lon) }
+            .filter { it.second <= BRIEF_KM }
+            .sortedBy { it.second }
+            .take(3)
+            .map { it.first }
+        if (near.isEmpty()) return "${place.name} 근처는 앱에 담긴 명소 정보가 아직 없어요. Canvas Quest에서 주변 미방문 지역을 볼 수 있어요."
+        return "${place.name} 근처 명소를 알려 드릴게요. " +
+            near.joinToString(" ") { if (it.note.isNotEmpty()) "${it.name.eun} ${it.note.ieyo}" else "${it.name.iga} 있어요." }
     }
 
     private fun propose(cmd: PlanCommand.NewPlan) {
@@ -221,6 +235,8 @@ class TripPlanner(
 
     companion object {
         const val ARRIVE_KM = 1.0
+        /** 명소 소개 범위(km). */
+        const val BRIEF_KM = 25.0
         /** 위치를 아직 모를 때 순서 계산 기준(서울시청). */
         val DEFAULT_START = 37.5663 to 126.9779
     }
@@ -241,4 +257,5 @@ private fun String.batchimIsRieul(): Boolean {
 internal val String.ro get() = this + if (hasBatchim() && !batchimIsRieul()) "으로" else "로"
 internal val String.eun get() = this + if (hasBatchim()) "은" else "는"
 internal val String.eul get() = this + if (hasBatchim()) "을" else "를"
+internal val String.iga get() = if (hasBatchim()) "이" else "가"
 internal val String.ieyo get() = this + if (hasBatchim()) "이에요." else "예요."

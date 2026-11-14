@@ -406,7 +406,7 @@ private fun MapLegend(modifier: Modifier) {
                 Modifier.size(width = 34.dp, height = 14.dp).clip(RoundedCornerShape(4.dp))
                     .background(Brush.horizontalGradient((0..6).map { rainbow(it * 2, com.carnect.roadcanvas.trip.VisitState.PASSED) })),
             )
-            Text("  방문 지역 (방문 순서)", fontSize = 15.sp, color = Palette.Ink)
+            Text(if (MapColors.theme == MapTheme.SINGLE) "  지나간 곳" else "  방문 지역 (방문 순서)", fontSize = 15.sp, color = Palette.Ink)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(

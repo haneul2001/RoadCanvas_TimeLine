@@ -48,6 +48,31 @@ class Region(
         return rings.any { ringContains(it, lat, lon) }
     }
 
+    /** 경계선까지의 가장 짧은 거리(km, 좁은 범위라 평면 근사). */
+    fun boundaryDistanceKm(lat: Double, lon: Double): Double {
+        val kx = 111.32 * Math.cos(Math.toRadians(lat))
+        val ky = 110.57
+        var best = Double.MAX_VALUE
+        rings.forEach { r ->
+            val n = r.size / 2
+            for (i in 0 until n) {
+                val j = (i + 1) % n
+                val ax = (r[i * 2] - lon) * kx
+                val ay = (r[i * 2 + 1] - lat) * ky
+                val bx = (r[j * 2] - lon) * kx
+                val by = (r[j * 2 + 1] - lat) * ky
+                val dx = bx - ax
+                val dy = by - ay
+                val len = dx * dx + dy * dy
+                val t = if (len == 0.0) 0.0 else (-(ax * dx + ay * dy) / len).coerceIn(0.0, 1.0)
+                val px = ax + dx * t
+                val py = ay + dy * t
+                best = minOf(best, Math.sqrt(px * px + py * py))
+            }
+        }
+        return best
+    }
+
     override fun toString() = if (name == province) name else "$province $name($code)"
 
     private companion object {
@@ -80,7 +105,21 @@ class RegionIndex(val level: Level, val regions: List<Region>) {
     private val byCode = regions.associateBy { it.code }
     private val childCount = regions.groupingBy { it.parent }.eachCount()
 
-    fun find(lat: Double, lon: Double): Region? = regions.firstOrNull { it.contains(lat, lon) }
+    /**
+     * 좌표가 든 구역. 경계를 단순화하면서 해안선·경계가 조금 안쪽으로 들어와 해변·항구 같은 점이
+     * 어느 구역에도 안 들어갈 수 있으므로, 그럴 때는 [NEAR_KM] 안의 가장 가까운 구역으로 본다.
+     */
+    fun find(lat: Double, lon: Double): Region? =
+        regions.firstOrNull { it.contains(lat, lon) } ?: nearest(lat, lon)
+
+    private fun nearest(lat: Double, lon: Double): Region? {
+        val m = NEAR_KM / 111.0 * 1.5
+        return regions.asSequence()
+            .filter { lat >= it.minLat - m && lat <= it.maxLat + m && lon >= it.minLon - m && lon <= it.maxLon + m }
+            .map { it to it.boundaryDistanceKm(lat, lon) }
+            .filter { it.second <= NEAR_KM }
+            .minByOrNull { it.second }?.first
+    }
 
     fun byCode(code: String): Region? = byCode[code]
 
@@ -91,6 +130,9 @@ class RegionIndex(val level: Level, val regions: List<Region>) {
     fun countIn(parent: String): Int = childCount[parent] ?: 0
 
     companion object {
+        /** 어느 구역에도 안 드는 점을 가장 가까운 구역으로 볼 최대 거리(km). */
+        const val NEAR_KM = 1.5
+
         fun load(level: Level, input: InputStream): RegionIndex {
             val array = JSONArray(input.bufferedReader(Charsets.UTF_8).use { it.readText() })
             val regions = (0 until array.length()).map { i ->

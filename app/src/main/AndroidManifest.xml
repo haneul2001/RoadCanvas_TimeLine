@@ -26,6 +26,11 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
+        <!-- 주행 UX 제한 확인(차량에 있으면 사용) -->
+        <uses-library
+            android:name="android.car"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">

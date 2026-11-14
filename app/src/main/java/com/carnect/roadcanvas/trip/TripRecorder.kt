@@ -196,37 +196,63 @@ class TripRecorder(
         )
     }
 
-    fun start() {
+    /** 음성 안내를 끈다(시연용 샘플 기록을 한꺼번에 만들 때). */
+    @Volatile
+    var quiet = false
+
+    private fun speak(text: String, flush: Boolean) {
+        if (!quiet) tts.speak(text, flush)
+    }
+
+    /** [ms] 시각으로 타임라인 줄을 남기며 [block]을 실행한다(지난 기록을 만들 때). */
+    private inline fun <T> at(ms: Long?, block: () -> T): T {
+        val prev = eventTime
+        if (ms != null) eventTime = ms
+        try {
+            return block()
+        } finally {
+            eventTime = prev
+        }
+    }
+
+    /** 여행 시작. [atMs]는 시작 시각(기본은 지금, 시연용 샘플 기록은 지난 날짜). */
+    fun start(atMs: Long = System.currentTimeMillis(), withLocation: Boolean = true) {
         if (_state.value.recording) return
-        val trip = Trip(System.currentTimeMillis())
+        val trip = Trip(atMs)
         trips += trip
         store.saveTrips(trips)
         _trips.value = trips.toList()
         lastPoint = null
         trackers.values.forEach { it.resetPosition() }
         Log.i(TAG, "trip start ${trip.id}")
-        source.start()
+        if (withLocation) source.start()
         _state.update { it.copy(recording = true, trip = trip, track = emptyList(), events = emptyList()) }
     }
 
-    fun stop() {
+    fun stop(atMs: Long? = null) = at(atMs) { stopNow(atMs) }
+
+    private fun stopNow(atMs: Long?) {
         if (!_state.value.recording) return
         source.stop()
-        val trip = _state.value.trip?.copy(endMs = System.currentTimeMillis())
+        val trip = _state.value.trip?.copy(endMs = atMs ?: System.currentTimeMillis())
         if (trip != null) {
             replaceTrip(trip)
             val s = _state.value
+            val newSgg = s.newInTrip(Level.SGG)
+            val stickersNow = s.stickersInTrip()
+            // 끝난 곳의 시·도 진행률(그 시·도 시·군·구 중 다녀온 곳)
+            val sggIndex = indexes.getValue(Level.SGG)
+            val sido = s.current[Level.SIDO]
+            val progress = sido?.let { p ->
+                Triple(p.name, s.visitsAt(Level.SGG).keys.count { sggIndex.byCode(it)?.parent == p.code }, sggIndex.countIn(p.code))
+            }
             addEvent(
                 EventKind.END, "여행 종료 요약",
-                "총 ${formatKm(trip.distanceM / 1000)} · 새 시·군·구 ${s.newInTrip(Level.SGG)}곳 · 읍·면·동 ${s.newInTrip(Level.DONG)}곳",
+                "총 ${formatKm(trip.distanceM / 1000)} · 새 시·군·구 ${newSgg}곳 · 스티커 ${stickersNow}개" +
+                    (progress?.let { " · ${it.first} ${it.second}/${it.third}" } ?: ""),
             )
-            // 여행을 마치면 짧게 요약해 들려준다(정해진 문장 틀).
-            val newSgg = s.newInTrip(Level.SGG)
-            tts.speak(
-                "여행을 마쳤어요. 모두 ${formatKm(trip.distanceM / 1000).replace(" km", "킬로미터")}를 달렸고" +
-                    (if (newSgg > 0) ", 새로운 시·군·구 ${newSgg}곳을 칠했어요." else ", 새로 칠한 곳은 없어요."),
-                flush = true,
-            )
+            // 여행을 마치면 저장된 사실만으로 정해진 문장 틀에 넣어 들려준다.
+            speak(summaryText(trip.distanceM / 1000, newSgg, stickersNow, progress), flush = true)
         }
         Log.i(TAG, "trip stop")
         _state.update { it.copy(recording = false, trip = trip) }
@@ -236,11 +262,13 @@ class TripRecorder(
      * 머문 시·군·구의 방문을 사용자가 확인했을 때. 그 안에서 머문 읍·면·동과 상위 시·도도 함께 확정하고,
      * 지역 스티커와(경로가 근처를 지난) 장소 스티커를 준다. 통과만 한 곳은 확정 대상이 아니다.
      */
-    fun confirmStay(sggCode: String) {
+    fun confirmStay(sggCode: String, atMs: Long? = null) = at(atMs) { confirmNow(sggCode, atMs) }
+
+    private fun confirmNow(sggCode: String, atMs: Long?) {
         val sggIndex = indexes.getValue(Level.SGG)
         val region = sggIndex.byCode(sggCode) ?: return
         val record = visits.getValue(Level.SGG)[sggCode] ?: return
-        val now = System.currentTimeMillis()
+        val now = atMs ?: System.currentTimeMillis()
 
         markConfirmed(Level.SGG, sggCode)
         markConfirmed(Level.SIDO, region.parent)
@@ -265,7 +293,7 @@ class TripRecorder(
                 addEvent(EventKind.STICKER, "${s.title} 스티커 획득", if (s.isPlace) "${region.name} · 장소 스티커" else "${region.province} · 지역 스티커")
             }
             // 정차 중에만 확정할 수 있으므로 음성 안내를 덧붙여도 운전에 방해되지 않는다.
-            tts.speak("${fresh.joinToString(", ") { it.title }} 스티커를 받았어요.", flush = false)
+            speak("${fresh.joinToString(", ") { it.title }} 스티커를 받았어요.", flush = false)
         }
         Log.i(TAG, "confirm $sggCode stickers=${fresh.map { it.id }}")
         _state.update { it.copy(visits = snapshotVisits(), stickers = stickers.toList()) }
@@ -395,8 +423,8 @@ class TripRecorder(
     /** 주행 중 안내는 짧게: 시·도에 처음 들어올 때와 시·군·구 첫 방문만 말한다(읍·면·동은 너무 잦다). */
     private fun announce(level: Level, r: Region) {
         when (level) {
-            Level.SIDO -> tts.speak("${r.name}에 처음 왔어요.", flush = false)
-            Level.SGG -> tts.speak("${r.name} 첫 방문이에요. 지도에 색이 칠해졌어요.", flush = false)
+            Level.SIDO -> speak("${r.name}에 처음 왔어요.", flush = false)
+            Level.SGG -> speak("${r.name} 첫 방문이에요. 지도에 색이 칠해졌어요.", flush = false)
             Level.DONG -> Unit
         }
     }
@@ -423,6 +451,18 @@ class TripRecorder(
     private fun dayOf(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
 
     companion object {
+        /** 여행 요약 문장(기록된 값만 사용). [province]는 (시·도 이름, 다녀온 시·군·구 수, 전체 수). */
+        fun summaryText(km: Double, newSgg: Int, stickers: Int, province: Triple<String, Int, Int>?): String = buildString {
+            append("이번 여행은 ${if (km >= 10) km.toInt().toString() else "%.1f".format(km)}킬로미터를 달렸어요.")
+            when {
+                newSgg > 0 && stickers > 0 -> append(" 새로 방문한 시·군·구 ${newSgg}곳, 스티커 ${stickers}개를 모았어요.")
+                newSgg > 0 -> append(" 새로 방문한 시·군·구는 ${newSgg}곳이에요.")
+                stickers > 0 -> append(" 스티커 ${stickers}개를 모았어요.")
+                else -> append(" 새로 칠한 곳은 없어요.")
+            }
+            province?.let { (name, done, total) -> append(" ${name}는 이제 ${total}곳 중 ${done}곳을 칠했어요.") }
+        }
+
         fun formatKm(km: Double) = if (km >= 10) "${km.toInt()} km" else "%.1f km".format(km)
 
         /** 지도 핀·타임라인용 짧은 지명. 특별·광역시는 시 이름, 나머지는 구역 이름에서 접미사를 뺀다. */

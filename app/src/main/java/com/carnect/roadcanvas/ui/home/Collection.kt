@@ -42,6 +42,12 @@ import com.carnect.roadcanvas.trip.TripState
 
 private data class Mission(val title: String, val caption: String, val done: Int, val total: Int)
 
+/** 동해안 7번 국도가 지나는 시·군(남쪽부터). (시·도 이름 앞부분, 시·군·구 이름) */
+val ROUTE_7 = listOf(
+    "부산" to "기장군", "울산" to "북구", "경상북도" to "경주시", "경상북도" to "포항시북구", "경상북도" to "영덕군", "경상북도" to "울진군",
+    "강원" to "삼척시", "강원" to "동해시", "강원" to "강릉시", "강원" to "양양군", "강원" to "속초시", "강원" to "고성군",
+)
+
 /** 미션은 실제 방문 기록과 방문 확정으로 받은 스티커로만 계산한다. */
 private fun missions(indexes: Map<Level, RegionIndex>, trip: TripState): List<Mission> {
     val sido = indexes.getValue(Level.SIDO)
@@ -52,6 +58,9 @@ private fun missions(indexes: Map<Level, RegionIndex>, trip: TripState): List<Mi
     return listOfNotNull(
         gangwon?.let { g ->
             Mission("${g.name} ${sgg.countIn(g.code)}개 시·군 방문", "강원의 모든 시·군을 지나 보세요", visitedSgg.count { sgg.byCode(it)?.parent == g.code }, sgg.countIn(g.code))
+        },
+        ROUTE_7.mapNotNull { (p, n) -> sgg.regions.firstOrNull { it.province.startsWith(p) && it.name == n } }.let { stops ->
+            Mission("동해안 7번 국도 완주", "부산 기장 ~ 강원 고성, ${stops.size}개 시·군을 지나 보세요", stops.count { it.code in visitedSgg }, stops.size)
         },
         Mission("동해안 여행지 탐험", eastCoast.joinToString(" · ") { it.name }, eastCoast.count { lm -> trip.stickers.any { it.id == "place:${lm.id}" } }, eastCoast.size),
         Mission("전국 시·도 정복", "모든 시·도에 한 번씩", trip.visitsAt(Level.SIDO).size, sido.regions.size),
@@ -125,7 +134,7 @@ private fun MissionRow(m: Mission) {
     Column {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(m.title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, modifier = Modifier.weight(1f), maxLines = 1)
-            Text("${m.done}/${m.total}", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = if (m.done >= m.total) Palette.Green else Palette.Primary)
+            Text("${m.done}/${m.total} · ${(progress * 100).toInt()}%", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = if (m.done >= m.total) Palette.Green else Palette.Primary)
         }
         Text(m.caption, fontSize = 15.sp, color = Palette.Muted, maxLines = 1)
         Spacer(Modifier.height(8.dp))

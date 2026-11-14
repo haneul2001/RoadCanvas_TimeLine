@@ -119,6 +119,7 @@ val PLAN_EXAMPLES = listOf(
     "속초, 양양, 강릉 들렀다가 서울로",
     "양양 말고 주문진 먼저 가자",
     "강릉은 빼줘",
+    "속초 뭐가 유명해?",
     "출발",
 )
 
@@ -268,7 +269,10 @@ private fun SuggestionList(
                     Text("${s.region.province} ${s.region.name}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Text(
                         buildString {
-                            if (extra) append("약 ${s.extraKm?.toInt() ?: 0} km 더 돌아감 (추정) · ")
+                            if (extra) {
+                                val km = s.extraKm ?: 0.0
+                                append("약 ${(km / DETOUR_KMH * 60).toInt().coerceAtLeast(1)}분 더 (추정, ${km.toInt()} km) · ")
+                            }
                             append("직선 ${s.distanceKm.toInt()} km")
                             if (s.landmarks.isNotEmpty()) append(" · 볼거리 ${s.landmarks.joinToString { it.name }}")
                         },
@@ -297,11 +301,12 @@ fun DetourScreen(
     onClose: () -> Unit,
 ) {
     val dest = plan.target
-    var budget by remember { mutableIntStateOf(20) }
+    // 더 들러도 되는 시간(분). 평균 시속 [DETOUR_KMH]km로 어림한 거리로 바꿔 고른다.
+    var budget by remember { mutableIntStateOf(15) }
     val here = trip.track.lastOrNull()?.let { it.lat to it.lon } ?: com.carnect.roadcanvas.plan.TripPlanner.DEFAULT_START
     val visited = trip.visitsAt(Level.SGG).keys
     val list = remember(dest, budget, visited, here) {
-        dest?.let { explorer.detour(visited, here, it, budget.toDouble(), limit = 8) }.orEmpty()
+        dest?.let { explorer.detour(visited, here, it, budget * DETOUR_KMH / 60, limit = 8) }.orEmpty()
     }
     Panel("Smart Detour", "다음 목적지로 가는 길에 조금만 돌아가면 칠할 수 있는 곳", onClose, { PanelIcon(Icons.Filled.Share, Palette.Primary) }) {
         if (dest == null) {
@@ -312,11 +317,11 @@ fun DetourScreen(
             return@Panel
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("목적지 ${dest.name} · 더 돌아가도 되는 거리", fontSize = 22.sp, color = Palette.Ink)
-            listOf(10, 20, 40).forEach { km -> FilterChip("$km km", budget == km) { budget = km } }
+            Text("목적지 ${dest.name} · 더 들러도 되는 시간", fontSize = 22.sp, color = Palette.Ink)
+            listOf(15, 30, 60).forEach { min -> FilterChip("${min}분", budget == min) { budget = min } }
         }
         Text(
-            "늘어나는 거리는 직선 거리로 어림한 값이에요. 실제 도로 거리와 시간은 경유지를 넣은 뒤 내비가 알려 줘요.",
+            "추가 시간은 직선 거리를 평균 시속 60km로 나눠 어림한 값이라 실제와 다를 수 있어요. 정확한 시간은 경유지를 넣은 뒤 내비가 알려 줘요.",
             fontSize = 17.sp, color = Palette.Muted,
         )
         SuggestionList(list, Modifier.weight(1f), extra = true, onGo = null, onAdd = onDetour, addLabel = "들렀다 가기")
@@ -327,8 +332,11 @@ fun DetourScreen(
 
 private val dateFormat = SimpleDateFormat("M월 d일 (E) HH:mm", Locale.KOREA)
 
+/** 우회 추천에서 시간을 거리로 어림할 때 쓰는 평균 시속(km). 실제 시간은 내비가 알려 준다. */
+const val DETOUR_KMH = 60.0
+
 /** 기록 보기 묶음 단위. */
-enum class TripPeriod(val label: String) { TRIP("여행별"), WEEK("주간"), MONTH("월별"), YEAR("연도별") }
+enum class TripPeriod(val label: String) { TRIP("여행별"), WEEK("주간"), MONTH("월별"), YEAR("연도별"), ALL("전체") }
 
 /** 기간 하나(주·달·해)에 든 여행들. */
 data class PeriodGroup(val key: String, val title: String, val tripIds: List<Long>)
@@ -344,6 +352,7 @@ fun groupTrips(trips: List<Trip>, period: TripPeriod): List<PeriodGroup> {
             TripPeriod.WEEK -> d.with(java.time.DayOfWeek.MONDAY).toString()
             TripPeriod.MONTH -> "${d.year}-${d.monthValue}"
             TripPeriod.YEAR -> "${d.year}"
+            TripPeriod.ALL -> "all"
         }
     }.map { (key, ts) ->
         val d = day(ts.first())
@@ -356,6 +365,7 @@ fun groupTrips(trips: List<Trip>, period: TripPeriod): List<PeriodGroup> {
             }
             TripPeriod.MONTH -> "${d.year}년 ${d.monthValue}월"
             TripPeriod.YEAR -> "${d.year}년"
+            TripPeriod.ALL -> "지금까지 모든 여행"
         }
         PeriodGroup(key, title, ts.map { it.id }.sorted())
     }.sortedByDescending { it.tripIds.max() }
@@ -471,6 +481,7 @@ fun SettingsScreen(
     zones: List<ExcludedZone>,
     hereName: String?,
     recording: Boolean,
+    onTheme: (MapTheme) -> Unit,
     onAddZone: () -> Unit,
     onRemoveZone: (ExcludedZone) -> Unit,
     onClearAll: () -> Unit,
@@ -481,6 +492,25 @@ fun SettingsScreen(
     Panel("설정 · 개인정보", "위치 기록은 '여행 시작'을 누른 뒤에만, 기기 안에만 저장해요", onClose, { PanelIcon(Icons.Filled.Settings, Palette.Primary) }) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             CardBox(Modifier.weight(1f).fillMaxHeight()) {
+                Text("지도 색", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MapTheme.entries.forEach { t ->
+                        Row(
+                            Modifier.clip(RoundedCornerShape(24.dp)).background(if (MapColors.theme == t) Palette.PrimarySoft else Palette.Card)
+                                .border(if (MapColors.theme == t) 2.dp else 1.dp, if (MapColors.theme == t) Palette.Primary else Palette.Line, RoundedCornerShape(24.dp))
+                                .clickable { onTheme(t) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 견본: 그 테마의 첫 다섯 색
+                            (0..2).forEach { i ->
+                                Box(Modifier.size(14.dp).clip(CircleShape).background(rainbow(i, com.carnect.roadcanvas.trip.VisitState.STAY_CANDIDATE, t)))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(t.label, fontSize = 18.sp, color = Palette.Ink)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Lock, null, tint = Palette.Primary, modifier = Modifier.size(30.dp))
                     Spacer(Modifier.width(10.dp))
@@ -551,6 +581,10 @@ fun TestDriveScreen(
     onStart: (fromSeoul: Boolean) -> Unit,
     onStop: () -> Unit,
     onReset: () -> Unit,
+    /** 시연용 샘플 여행 만들기. null이면 버튼을 숨긴다. */
+    onDemo: (() -> Unit)?,
+    /** 샘플 만들기 진행 상황(없으면 null). */
+    demoStatus: String?,
     onClose: () -> Unit,
 ) {
     var fromSeoul by remember { mutableStateOf(true) }
@@ -597,6 +631,13 @@ fun TestDriveScreen(
                 Text("이번 테스트로 달린 거리 ${TripRecorder.formatKm(drive.drivenKm)}", fontSize = 20.sp, color = Palette.Muted)
                 Text("여행 기록: ${if (recording) "기록 중" else "꺼짐"}", fontSize = 20.sp, color = Palette.Muted)
                 Spacer(Modifier.weight(1f))
+                if (onDemo != null) {
+                    Text("시연용 샘플 여행", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Text("지난 6주 동안 춘천·전주·여수·경주·부산·속초·강릉을 다녀온 것처럼 여행 6개를 바로 만들어요. 실제 기록과 같은 방식으로 쌓여 지도·타임랩스·미션에 반영돼요.", fontSize = 17.sp, color = Palette.Muted)
+                    if (demoStatus != null) Text(demoStatus, fontSize = 18.sp, color = Palette.Primary)
+                    Pill("샘플 여행 만들기", Palette.Primary, Palette.PrimarySoft, onDemo, enabled = !recording && !drive.running && demoStatus?.endsWith("중…") != true)
+                    Spacer(Modifier.height(12.dp))
+                }
                 Text("초기화", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 Text("테스트를 멈추고 모든 여행·방문·스티커·계획을 지워 처음 상태로 돌려요. 되돌릴 수 없어요.", fontSize = 17.sp, color = Palette.Muted)
                 if (confirmReset) {

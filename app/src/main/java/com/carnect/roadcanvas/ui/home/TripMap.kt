@@ -87,8 +87,22 @@ private const val MIN_ZOOM = 0.6f
 private const val MAX_ZOOM = 8f
 
 /** 방문 순서대로 빨강 → 보라를 돌아가며 칠한다. 머문 곳·확정은 같은 색을 진하게. */
-fun rainbow(order: Int, state: VisitState): Color {
-    val hue = (order * 26f) % 300f
+/** 지도 색 테마(정차 중 설정에서 고름). 방문 순서마다 [hueStart]부터 [hueRange] 안에서 색을 바꾼다. */
+enum class MapTheme(val label: String, val hueStart: Float, val hueRange: Float, val step: Float) {
+    RAINBOW("무지개", 0f, 300f, 26f),
+    OCEAN("바다", 175f, 75f, 11f),
+    FOREST("숲", 70f, 90f, 13f),
+    SUNSET("노을", 330f, 75f, 11f),
+    SINGLE("단색", 215f, 0f, 0f),
+}
+
+/** 지금 지도 색 테마. 바꾸면 지도와 범례가 바로 다시 그려진다. */
+object MapColors {
+    var theme by androidx.compose.runtime.mutableStateOf(MapTheme.RAINBOW)
+}
+
+fun rainbow(order: Int, state: VisitState, t: MapTheme = MapColors.theme): Color {
+    val hue = if (t.hueRange == 0f) t.hueStart else (t.hueStart + (order * t.step) % t.hueRange) % 360f
     return when (state) {
         VisitState.PASSED -> Color.hsv(hue, 0.38f, 0.98f)
         VisitState.STAY_CANDIDATE -> Color.hsv(hue, 0.62f, 0.93f)

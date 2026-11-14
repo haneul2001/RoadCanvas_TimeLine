@@ -33,6 +33,14 @@ class RoadBook(
         return straight(from, to) to false
     }
 
+    /** 도시 이름으로 도로 좌표(a → b). 없으면 null. */
+    fun cityRoute(a: String, b: String): List<LatLon>? {
+        val i = cities.indexOfFirst { it.first == a }
+        val j = cities.indexOfFirst { it.first == b }
+        if (i < 0 || j < 0 || i == j) return null
+        return routes[i to j] ?: routes[j to i]?.reversed()
+    }
+
     private fun nearestCity(p: LatLon): Int? =
         cities.indices.minByOrNull { km(p, cities[it].second) }?.takeIf { km(p, cities[it].second) <= SNAP_KM }
 

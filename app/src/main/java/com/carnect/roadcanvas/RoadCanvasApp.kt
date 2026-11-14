@@ -49,6 +49,8 @@ class RoadCanvasApp : Application() {
         private set
     var testDrive: TestDrive? = null
         private set
+    var demoData: com.carnect.roadcanvas.sim.DemoData? = null
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -74,6 +76,7 @@ class RoadCanvasApp : Application() {
             planner = plan
             val road = withContext(Dispatchers.IO) { assets.open("city_roads.json").use(com.carnect.roadcanvas.sim.RoadBook::load) }
             testDrive = TestDrive(this, recorder, plan, road, ::ensureRecording) { TripService.stop(this@RoadCanvasApp) }
+            demoData = com.carnect.roadcanvas.sim.DemoData(recorder, road)
             // 내비 도착 이벤트와 차 위치를 계획에 넘긴다(에뮬레이터 내비는 GPS 주입으로 움직이지 않아 위치 판정이 주로 쓰인다).
             launch { naviRepo.events.collect(plan::onNavi) }
             // 테스트 주행 중에는 내비 화면 속 차가 움직이지 않으므로, 경로가 잡히면 지도가 칠해지는 우리 화면을 다시 앞으로 가져온다.

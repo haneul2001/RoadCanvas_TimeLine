@@ -61,4 +61,13 @@ class RegionIndexTest {
         assertNull(sgg.find(36.0, 131.5)) // 동해 한가운데
         assertNull(dong.find(35.0, 125.0)) // 서해 한가운데
     }
+
+    @Test
+    fun `해변처럼 경계 바로 바깥 점은 가까운 구역으로 본다`() {
+        val sgg = File("src/main/assets/${Level.SGG.asset}").inputStream().use { RegionIndex.load(Level.SGG, it) }
+        // 경포해변(바닷가)
+        org.junit.Assert.assertEquals("강릉시", sgg.find(37.8055, 128.9087)?.name)
+        // 바다 한가운데는 여전히 없음
+        org.junit.Assert.assertNull(sgg.find(37.8, 129.6))
+    }
 }

@@ -8,12 +8,16 @@ sealed interface PlanCommand {
     data class Remove(val place: Place) : PlanCommand
     /** "주문진 먼저 갈래" / "양양 말고 주문진 먼저" (앞의 것은 빼고 뒤의 것을 다음 목적지로) */
     data class Prioritize(val place: Place, val instead: Place?) : PlanCommand
+    /** "속초 뭐가 유명해?" → 앱에 담긴 명소로 짧게 소개 */
+    data class Ask(val place: Place) : PlanCommand
     data object Depart : PlanCommand
     data object Unknown : PlanCommand
 }
 
 /** 규칙 기반 해석기. 경유 순서 계산은 [RouteOrder]가 맡는다. */
 object PlanParser {
+
+    private val ASK_WORDS = listOf("유명", "볼거리", "볼만", "가볼만", "뭐있", "뭐가있", "알려줘", "소개")
 
     fun parse(text: String, places: Places, near: Pair<Double, Double>?): PlanCommand {
         val compact = text.replace(" ", "")
@@ -23,6 +27,8 @@ object PlanParser {
         if (names.isEmpty()) {
             return if ("출발" in compact || "가자" in compact || "다시가" in compact) PlanCommand.Depart else PlanCommand.Unknown
         }
+
+        if (ASK_WORDS.any { it in compact }) return PlanCommand.Ask(names.first())
 
         val notIdx = listOf("말고", "대신").map { compact.indexOf(it) }.filter { it >= 0 }.minOrNull()
         if (notIdx != null) {

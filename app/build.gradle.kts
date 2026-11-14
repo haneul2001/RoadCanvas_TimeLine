@@ -14,6 +14,8 @@ val localProps = Properties().apply {
 android {
     namespace = "com.carnect.roadcanvas"
     compileSdk = 35
+    // 차량 주행 UX 제한(CarUxRestrictionsManager)
+    useLibrary("android.car")
 
     defaultConfig {
         applicationId = "com.carnect.roadcanvas"

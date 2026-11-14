@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -53,6 +56,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 지도 색 테마는 기기 안 설정에 저장해 두고 다시 켜도 유지한다.
+        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        com.carnect.roadcanvas.ui.home.MapColors.theme =
+            runCatching { com.carnect.roadcanvas.ui.home.MapTheme.valueOf(prefs.getString("map_theme", null) ?: "RAINBOW") }
+                .getOrDefault(com.carnect.roadcanvas.ui.home.MapTheme.RAINBOW)
         val empty = MutableStateFlow(TripState())
         val emptyPlan = MutableStateFlow(PlanState())
         val emptyDrive = MutableStateFlow(DriveState())
@@ -60,6 +68,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) {
                     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
+                    var demoStatus by remember { mutableStateOf<String?>(null) }
+                    val scope = rememberCoroutineScope()
                     val regions by app.regions.collectAsStateWithLifecycle()
                     val vehicle by app.vehicleRepo.state.collectAsStateWithLifecycle()
                     // 경계 데이터를 읽은 뒤에 기록기·계획기가 생긴다.
@@ -128,6 +138,10 @@ class MainActivity : ComponentActivity() {
                             val hereName = here?.let { trip.current[Level.SGG]?.let(TripRecorder::placeName) ?: "현재 위치" }
                             SettingsScreen(
                                 zones, hereName, trip.recording,
+                                onTheme = { t ->
+                                    com.carnect.roadcanvas.ui.home.MapColors.theme = t
+                                    prefs.edit().putString("map_theme", t.name).apply()
+                                },
                                 onAddZone = {
                                     if (here != null) {
                                         recorder.addZone(ExcludedZone("$hereName 근처", here.lat, here.lon))
@@ -147,6 +161,16 @@ class MainActivity : ComponentActivity() {
                         }
                         Screen.TEST -> TestDriveScreen(
                             plan, drive, trip.recording,
+                            onDemo = app.demoData?.let { demo ->
+                                {
+                                    demoStatus = "샘플 여행 만드는 중…"
+                                    scope.launch {
+                                        val ok = demo.generate { n, total -> demoStatus = "샘플 여행 만드는 중… ($n/$total)" }
+                                        demoStatus = if (ok) "샘플 여행 ${demo.tripCount}개를 만들었어요. 기록 보기에서 확인하세요." else "기록 중에는 만들 수 없어요."
+                                    }
+                                }
+                            },
+                            demoStatus = demoStatus,
                             onPlan = { text, fromSeoul -> planner!!.hear(text, if (fromSeoul) TripPlanner.DEFAULT_START else null) },
                             onSpeed = { testDrive!!.setSpeed(it) },
                             onStart = { fromSeoul ->
