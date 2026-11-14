@@ -80,12 +80,25 @@ fun MainScreen(
     /** 저장된 여행 목록과 기간 기록 불러오기(여행 히스토리·기간 타임랩스). */
     trips: List<com.carnect.roadcanvas.trip.Trip> = emptyList(),
     loadPeriod: (List<Long>) -> TripState? = { null },
+    /** 기간별 방문 지도(그 기간 여행에서 간 곳만). */
+    loadArea: (List<Long>) -> TripState? = { null },
 ) {
     // 날짜 토글(년·월)과 여행 히스토리 패널
     val today = java.time.LocalDate.now()
     var year by rememberSaveable { mutableStateOf(today.year) }
     var month by rememberSaveable { mutableStateOf(today.monthValue) }
     var historyOpen by rememberSaveable { mutableStateOf(false) }
+    // 지도에 칠할 방문 범위(전체·년별·월별)와 그 기간 지도
+    var mapScope by rememberSaveable { mutableStateOf(MapScope.ALL) }
+    var area by remember { mutableStateOf<TripState?>(null) }
+    var areaLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(mapScope, year, month, trips.size, trip.stickers.size) {
+        if (mapScope == MapScope.ALL) { area = null; return@LaunchedEffect }
+        val ids = (if (mapScope == MapScope.YEAR) trips.inPeriod(year) else trips.inPeriod(year, month)).map { it.id }
+        areaLoading = true
+        area = if (ids.isEmpty()) TripState() else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { loadArea(ids) } ?: TripState()
+        areaLoading = false
+    }
     // 기간 타임랩스: (제목, 기록, 재생 길이 ms)
     var playing by remember { mutableStateOf<Triple<String, TripState, Int>?>(null) }
     var playRun by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -143,6 +156,13 @@ fun MainScreen(
                 if (index != null && pl != null && replay != null) {
                     // 기간 타임랩스: 그 기간 전체가 보이는 지도에 시간 순으로 그린다
                     TripMap(index, pl.second, interactive = false, Modifier.fillMaxSize(), frame = playFrame, decorations = decorations)
+                } else if (index != null && mapScope != MapScope.ALL && area != null) {
+                    // 년별·월별: 그 기간에 간 곳만 칠하고 그 기간 경로만
+                    TripMap(
+                        index, area!!, interactive = parked, Modifier.fillMaxSize(),
+                        decorations = decorations, fitAll = true, zoomControl = zoomControl,
+                        onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
+                    )
                 } else if (index != null) {
                     TripMap(
                         index, trip, interactive = parked, Modifier.fillMaxSize(),
@@ -153,10 +173,11 @@ fun MainScreen(
                 }
                 Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LevelSelector(level, onSelect = { level = it }, Modifier)
+                    ScopeToggle(mapScope, onScope = { mapScope = it })
                     DateToggles(
                         trips, year, month, historyOpen,
-                        onYear = { year = it; historyOpen = true },
-                        onMonth = { month = it; historyOpen = true },
+                        onYear = { year = it; if (mapScope == MapScope.ALL) historyOpen = true },
+                        onMonth = { month = it; if (mapScope == MapScope.ALL) historyOpen = true },
                         onHistory = { historyOpen = !historyOpen },
                     )
                     if (parked) {
@@ -167,7 +188,22 @@ fun MainScreen(
                         ) { Text("🎨  지도 꾸미기", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
                     }
                 }
-                if (here == null) {
+                if (mapScope != MapScope.ALL && pl == null) {
+                    val a = area
+                    val n = a?.visitsAt(level)?.size ?: 0
+                    val label = if (mapScope == MapScope.YEAR) "${year}년" else "${year}년 ${month}월"
+                    Text(
+                        when {
+                            areaLoading || a == null -> "$label 지도를 불러오는 중…"
+                            n == 0 -> "${label}에는 간 곳이 없어요"
+                            else -> "${label}에 간 ${level.label} ${n}곳"
+                        },
+                        fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Palette.Ink,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(14.dp).clip(RoundedCornerShape(16.dp))
+                            .background(Palette.Surface.copy(alpha = 0.95f)).padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
+                if (here == null && mapScope == MapScope.ALL) {
                     Text(
                         if (locationAllowed) "현재 위치를 받는 중이에요…" else "위치를 허용하면 현재 위치가 지도 가운데에 표시돼요",
                         fontSize = 18.sp, color = Palette.Ink,

@@ -187,6 +187,8 @@ fun TripMap(
     spots: List<com.carnect.roadcanvas.data.Spot> = emptyList(),
     /** 확대·축소 버튼. */
     zoomControl: MapZoom? = null,
+    /** 기간별 지도: 칠한 곳 전체와 경로가 다 보이게 범위를 맞춘다. */
+    fitAll: Boolean = false,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val bitmaps = remember { StickerBitmaps(ctx) }
@@ -198,7 +200,8 @@ fun TripMap(
         val key = (focus.first * 20).toInt() to (focus.second * 20).toInt()
         remember(key, route) { Viewport.focus(focus, route.map { it.second }) }
     } else {
-        remember(tripRegions.size, trip.track.size / 20) { Viewport.around(tripRegions, trip.track) }
+        val fitRegions = if (fitAll) trip.visitsAt(index.level).keys.mapNotNull(index::byCode) else tripRegions
+        remember(fitRegions.size, trip.track.size / 20, fitAll) { Viewport.around(fitRegions, trip.track) }
     }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }

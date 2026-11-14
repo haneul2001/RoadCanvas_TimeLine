@@ -50,6 +50,29 @@ fun Trip.date(): LocalDate = Instant.ofEpochMilli(startMs).atZone(zone).toLocalD
 fun List<Trip>.inPeriod(year: Int, month: Int? = null): List<Trip> =
     filter { it.endMs != null && it.date().year == year && (month == null || it.date().monthValue == month) }.sortedBy { it.startMs }
 
+/** 메인 지도에 칠할 방문 범위. */
+enum class MapScope(val label: String) { ALL("전체"), YEAR("년별"), MONTH("월별") }
+
+/** 표시 범위 토글: 전체 · 년별 · 월별. */
+@Composable
+fun ScopeToggle(scope: MapScope, onScope: (MapScope) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(24.dp)).background(Palette.Surface.copy(alpha = 0.96f))
+            .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("  방문 표시", fontSize = 16.sp, color = Palette.Muted)
+        Spacer(Modifier.width(6.dp))
+        MapScope.entries.forEach { s ->
+            val sel = s == scope
+            Box(
+                Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Palette.Teal else Color.Transparent)
+                    .clickable { onScope(s) }.padding(horizontal = 16.dp, vertical = 10.dp),
+            ) { Text(s.label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (sel) Color.White else Palette.Ink) }
+        }
+    }
+}
+
 /** 메인 지도 위 '년 ▾ · 월 ▾ · 여행 히스토리' 줄. 고르는 목록에는 그 기간 여행 수를 함께 보여 준다. */
 @Composable
 fun DateToggles(

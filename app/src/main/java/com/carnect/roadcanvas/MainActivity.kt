@@ -377,6 +377,7 @@ class MainActivity : ComponentActivity() {
                             onStats = { screen = Screen.STATS },
                             trips = mainTrips,
                             loadPeriod = { ids -> recorder?.loadPeriod(ids) },
+                            loadArea = { ids -> recorder?.loadArea(ids) },
                         )
                     }
                     // 정차 중에만 팝업(주행 중엔 음성 안내만)

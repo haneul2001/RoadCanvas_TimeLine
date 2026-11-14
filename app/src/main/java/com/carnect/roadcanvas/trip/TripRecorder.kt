@@ -98,6 +98,37 @@ class TripRecorder(
      * 여러 여행(주간·월별·연도별)을 하나로 이어 본다. 여행 사이의 빈 시간은 빼서(1분 간격으로 붙여)
      * 타임랩스가 이동한 시간 위주로 흐르게 한다. 그 기간 이전에 칠한 곳은 처음부터 칠해 둔다.
      */
+    /**
+     * 기간별 지도: [tripIds] 여행에서 지나간 곳만 남긴 방문 기록과 그 여행들의 경로(재생용 시각 이동 없음).
+     * 색 순서는 그 기간 안에서 처음 간 순서(그 지역을 지난 첫 여행의 시각)로 다시 매긴다.
+     */
+    fun loadArea(tripIds: List<Long>): TripState? {
+        val list = trips.filter { it.id in tripIds }.sortedBy { it.id }
+        if (list.isEmpty()) return null
+        val ids = list.map { it.id }.toSet()
+        val tracks = store.loadTracks(ids)
+        val track = mutableListOf<TrackPoint>()
+        val segments = mutableListOf<Pair<Long, Long>>()
+        list.forEach { t ->
+            val pts = if (t.id == _state.value.trip?.id) _state.value.track else tracks[t.id].orEmpty()
+            if (pts.isEmpty()) return@forEach
+            segments += pts.first().timeMs to t.id
+            pts.forEachIndexed { i, p -> track += p.copy(newSegment = i == 0 && track.isNotEmpty()) }
+        }
+        val area = snapshotVisits().mapValues { (_, byCode) ->
+            byCode.filterValues { v -> v.tripId in ids || v.tripIds.any { it in ids } }.mapValues { (_, v) ->
+                if (v.tripId in ids) v else v.copy(firstMs = v.tripIds.filter { it in ids }.minOrNull() ?: v.firstMs)
+            }
+        }
+        return TripState(
+            visits = area,
+            trip = Trip(list.first().id, endMs = list.last().endMs, distanceM = list.sumOf { it.distanceM }),
+            track = track,
+            stickers = stickers.filter { it.tripId in ids },
+            segments = segments,
+        )
+    }
+
     fun loadPeriod(tripIds: List<Long>): TripState? {
         val list = trips.filter { it.id in tripIds }.sortedBy { it.id }
         if (list.isEmpty()) return null
