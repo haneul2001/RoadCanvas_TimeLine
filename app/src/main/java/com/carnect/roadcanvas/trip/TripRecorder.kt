@@ -31,6 +31,8 @@ data class TripState(
     val current: Map<Level, Region> = emptyMap(),
     /** 지금까지 받은 스티커(모든 여행). */
     val stickers: List<Sticker> = emptyList(),
+    /** 화면에 보여 줄 지금 위치. 기록 중이 아니어도 앱이 열려 있으면 받지만 저장하지 않는다. */
+    val here: TrackPoint? = null,
 ) {
     fun visitsAt(level: Level): Map<String, VisitRecord> = visits[level].orEmpty()
 
@@ -233,7 +235,7 @@ class TripRecorder(
 
     private fun stopNow(atMs: Long?) {
         if (!_state.value.recording) return
-        source.stop()
+        if (!watching) source.stop()
         val trip = _state.value.trip?.copy(endMs = atMs ?: System.currentTimeMillis())
         if (trip != null) {
             replaceTrip(trip)
@@ -316,7 +318,7 @@ class TripRecorder(
         trackers = buildTrackers()
         _trips.value = emptyList()
         _zones.value = emptyList()
-        _state.update { TripState(recording = it.recording) }
+        _state.update { TripState(recording = it.recording, here = it.here, current = it.current) }
     }
 
     /** 테스트 주행 중에는 실제 위치 대신 [feed]로 넣은 점만 쓴다. */
@@ -340,7 +342,25 @@ class TripRecorder(
     private fun onLocation(data: LocationData) {
         if (simulating) return
         val time = if (data.timestampMillis > 0) data.timestampMillis else System.currentTimeMillis()
-        handle(TrackPoint(time, data.latitude, data.longitude))
+        val point = TrackPoint(time, data.latitude, data.longitude)
+        if (_state.value.trip?.active == true && _state.value.recording) handle(point) else showHere(point)
+    }
+
+    /** 앱 화면이 열려 있는 동안 지금 위치를 받는다(기록 중이 아니면 화면에만 쓰고 저장하지 않음). */
+    @Volatile
+    private var watching = false
+
+    fun watch(on: Boolean) {
+        watching = on
+        if (on) source.start() else if (!_state.value.recording) source.stop()
+    }
+
+    /** 기록 없이 화면용 위치만 바꾼다. 30m 넘게 움직였을 때만 지역을 다시 찾는다. */
+    private fun showHere(point: TrackPoint) {
+        val prev = _state.value.here
+        if (prev != null && TripTracker.distanceM(prev, point) < 30) return
+        val current = indexes.mapNotNull { (level, index) -> index.find(point.lat, point.lon)?.let { level to it } }.toMap()
+        _state.update { it.copy(here = point, current = current) }
     }
 
     /** 테스트 주행: 가상의 차 위치를 실제 위치와 같은 경로로 처리한다. */
@@ -419,7 +439,7 @@ class TripRecorder(
         val distance = trip.distanceM + (prev?.let { TripTracker.distanceM(it, point) } ?: 0.0)
         val updated = trip.copy(distanceM = distance)
         replaceTrip(updated)
-        _state.update { it.copy(visits = snapshotVisits(), trip = updated, track = it.track + point, current = current) }
+        _state.update { it.copy(visits = snapshotVisits(), trip = updated, track = it.track + point, current = current, here = point) }
         // 한곳에 머물렀으면(반경 300m 안 5분 이상) 묻지 않고 바로 방문 확정하고 스티커를 준다.
         stayed.forEach { confirmStay(it, point.timeMs) }
     }

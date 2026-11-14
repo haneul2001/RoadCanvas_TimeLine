@@ -68,10 +68,13 @@ fun MainScreen(
     onTestDrive: () -> Unit,
     decorations: List<com.carnect.roadcanvas.deco.Decoration>,
     onDecorate: () -> Unit,
+    /** 위치 권한이 있는지(없으면 '위치 표시 허용' 버튼). */
+    locationAllowed: Boolean,
+    onAllowLocation: () -> Unit,
 ) {
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
-    val here = trip.track.lastOrNull()?.let { it.lat to it.lon }
+    val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon }
     val route = if (plan.phase != PlanPhase.DONE) plan.remaining.map { it.name to (it.lat to it.lon) } else emptyList()
 
     var wasDriving by remember { mutableStateOf(false) }
@@ -88,7 +91,7 @@ fun MainScreen(
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(360.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 VoiceBubble(voiceText, listening, onVoice)
-                HereCard(indexes, trip, parked, driving, onToggleTrip, Modifier.weight(1f))
+                HereCard(indexes, trip, parked, driving, onToggleTrip, locationAllowed, onAllowLocation, Modifier.weight(1f))
             }
             Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea)) {
                 if (index != null) {
@@ -109,7 +112,7 @@ fun MainScreen(
                 }
                 if (here == null) {
                     Text(
-                        "'여행 시작'을 누르면 현재 위치가 지도 가운데에 표시돼요",
+                        if (locationAllowed) "현재 위치를 받는 중이에요…" else "위치를 허용하면 현재 위치가 지도 가운데에 표시돼요",
                         fontSize = 18.sp, color = Palette.Ink,
                         modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp))
                             .background(Color.White.copy(alpha = 0.92f)).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -135,19 +138,32 @@ private fun HereCard(
     parked: Boolean,
     driving: Boolean,
     onToggleTrip: () -> Unit,
+    locationAllowed: Boolean,
+    onAllowLocation: () -> Unit,
     modifier: Modifier,
 ) {
     val sgg = trip.current[Level.SGG]
     val sido = trip.current[Level.SIDO]
     val dong = trip.current[Level.DONG]
-    val p = trip.track.lastOrNull()
+    val p = trip.here ?: trip.track.lastOrNull()
     Column(
         modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Card).border(1.dp, Palette.Line, RoundedCornerShape(22.dp)).padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("지금 위치", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Muted)
-        Text(sgg?.let(TripRecorder::placeName) ?: "위치를 아직 몰라요", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 1)
-        Text(listOfNotNull(sido?.name, sgg?.name?.takeIf { it != sido?.name }, dong?.name).joinToString(" · ").ifEmpty { "여행 기록을 켜면 위치를 받아요" }, fontSize = 18.sp, color = Palette.Ink, maxLines = 2)
+        Text(sgg?.let(TripRecorder::placeName) ?: if (locationAllowed) "위치 확인 중" else "위치를 아직 몰라요", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 1)
+        Text(
+            listOfNotNull(sido?.name, sgg?.name?.takeIf { it != sido?.name }, dong?.name).joinToString(" · ")
+                .ifEmpty { if (locationAllowed) "차 위치를 받고 있어요" else "위치를 허용하면 지금 있는 곳을 보여 줘요(저장은 여행 시작 후에만)" },
+            fontSize = 18.sp, color = Palette.Ink, maxLines = 2,
+        )
+        if (!locationAllowed) {
+            Box(
+                Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(14.dp)).background(Palette.PrimarySoft)
+                    .border(1.dp, Palette.Primary, RoundedCornerShape(14.dp)).clickable(onClick = onAllowLocation),
+                contentAlignment = Alignment.Center,
+            ) { Text("📍  위치 표시 허용", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Primary) }
+        }
         if (p != null) Text("%.4f, %.4f".format(p.lat, p.lon), fontSize = 15.sp, color = Palette.Muted)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatusPill(if (trip.recording) "● 기록 중" else "기록 꺼짐", if (trip.recording) Palette.Green else Palette.Muted)

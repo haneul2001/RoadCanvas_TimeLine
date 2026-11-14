@@ -50,6 +50,25 @@ class MainActivity : ComponentActivity() {
         if (granted) TripService.start(this)
     }
 
+    /** 화면용 현재 위치(저장 안 함)를 위한 위치 권한. */
+    private val locationAllowed = androidx.compose.runtime.mutableStateOf(false)
+    private val watchPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        locationAllowed.value = granted
+        if (granted) app.tripRecorder?.watch(true)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        locationAllowed.value = checkSelfPermission(RoadCanvasApp.FUSED_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (locationAllowed.value) app.tripRecorder?.watch(true)
+    }
+
+    override fun onStop() {
+        // 화면이 안 보이면 화면용 위치는 끈다(기록 중이면 기록은 계속).
+        app.tripRecorder?.watch(false)
+        super.onStop()
+    }
+
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.all { it }) listen() else toast("마이크 권한이 있어야 음성으로 계획을 말할 수 있어요")
     }
@@ -95,6 +114,10 @@ class MainActivity : ComponentActivity() {
 
                     // 메인에서 주차를 감지하거나 '타임랩스'를 누르면 TimeLine 화면에서 바로 재생
                     var replayOnOpen by remember { mutableStateOf(false) }
+                    // 경계 데이터를 다 읽어 기록기가 생기면 화면용 위치를 켠다.
+                    androidx.compose.runtime.LaunchedEffect(loaded) {
+                        if (loaded && locationAllowed.value) app.tripRecorder?.watch(true)
+                    }
                     val simLine: String? = if (drive.running) {
                                 buildString {
                                     append("×${drive.speedX} · ${drive.status}")
@@ -268,6 +291,8 @@ class MainActivity : ComponentActivity() {
                             onTestDrive = { screen = Screen.TEST },
                             decorations = homeDecos,
                             onDecorate = { screen = Screen.DECORATE },
+                            locationAllowed = locationAllowed.value,
+                            onAllowLocation = { watchPermission.launch(RoadCanvasApp.FUSED_LOCATION) },
                         )
                     }
                 }
