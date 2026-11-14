@@ -90,7 +90,6 @@ fun HomeScreen(
     /** 기어를 확실히 P가 아닌 단으로 놓았을 때(기어를 아직 모르면 false). */
     driving: Boolean,
     onToggleTrip: () -> Unit,
-    onConfirmStay: (String) -> Unit,
     onFeature: (Feature) -> Unit,
     /** 음성 말풍선에 보일 문장(들은 말 또는 앱이 한 말). */
     voiceText: String = "",
@@ -108,6 +107,10 @@ fun HomeScreen(
     decorations: List<com.carnect.roadcanvas.deco.Decoration> = emptyList(),
     /** 지도 꾸미기 화면 열기(정차 중). */
     onDecorate: () -> Unit = {},
+    /** 메인에서 주차를 감지해 넘어왔으면 바로 이번 여행 타임랩스를 튼다. */
+    replayOnOpen: Boolean = false,
+    /** 메인 화면으로 돌아가기. */
+    onBack: (() -> Unit)? = null,
 ) {
     var showCollection by rememberSaveable { mutableStateOf(false) }
     if (showCollection && indexes != null) {
@@ -115,8 +118,6 @@ fun HomeScreen(
         CollectionScreen(indexes, trip, onClose = { showCollection = false })
         return
     }
-    // '나중에'를 누른 머문 곳은 이번 화면에서는 다시 묻지 않는다.
-    var postponed by rememberSaveable { mutableStateOf(listOf<String>()) }
     // 색칠 기준. 기본은 시·군·구.
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
@@ -137,6 +138,7 @@ fun HomeScreen(
         delay(1_500)
         replay = null
     }
+    LaunchedEffect(indexes != null) { if (replayOnOpen && indexes != null) startReplay() }
     // 주행하다 P로 바꾸면(주차) 이번 여행을 자동으로 재생한다.
     var wasDriving by remember { mutableStateOf(false) }
     LaunchedEffect(parked, driving) {
@@ -152,14 +154,12 @@ fun HomeScreen(
             else -> onFeature(f)
         }
     }
-    // 방문 확인은 정차 중, 타임랩스가 아닐 때만 묻는다.
-    val askStay = if (parked && replay == null) trip.pendingStays.firstOrNull { it !in postponed } else null
 
     Column(
         Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 28.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Header(onTestDrive)
+        Header(onTestDrive, onBack)
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(330.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 VoiceBubble(voiceText, listening, onVoice)
@@ -180,15 +180,6 @@ fun HomeScreen(
                         ) { Text("🎨  지도 꾸미기", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
                     }
                 }
-                val stayName = askStay?.let { indexes?.get(Level.SGG)?.byCode(it)?.name }
-                if (askStay != null && stayName != null) {
-                    ConfirmStayCard(
-                        stayName,
-                        onConfirm = { onConfirmStay(askStay) },
-                        onLater = { postponed = postponed + askStay },
-                        Modifier.align(Alignment.TopEnd).padding(14.dp),
-                    )
-                }
                 val r = replay
                 if (r != null && frame != null) {
                     ReplayBar(r, frame, progress.value, onStop = { replay = null }, Modifier.align(Alignment.BottomStart).padding(14.dp))
@@ -200,7 +191,6 @@ fun HomeScreen(
             TimelineCard(shown.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
         }
         ActionRow(trip.recording, parked, onToggleTrip, onFeatureTap)
-        InfoChips(parked)
         Launcher(parked, onFeatureTap)
     }
 }
@@ -243,7 +233,7 @@ private fun ReplayBar(replay: Replay, frame: TripState, progress: Float, onStop:
 
 /** 테스트 주행 상태 막대: 지금 상태 · 출발 · 멈춤. */
 @Composable
-private fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop: () -> Unit, modifier: Modifier) {
+internal fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop: () -> Unit, modifier: Modifier) {
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Palette.Ink.copy(alpha = 0.88f))
             .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -268,7 +258,7 @@ private fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop:
 }
 
 @Composable
-private fun Header(onTestDrive: () -> Unit) {
+internal fun Header(onTestDrive: () -> Unit, onBack: (() -> Unit)? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         AppIcon(Modifier.size(64.dp))
         Spacer(Modifier.width(18.dp))
@@ -284,6 +274,13 @@ private fun Header(onTestDrive: () -> Unit) {
             Text("차량 이동 데이터를 여행 기록과 다음 계획으로 연결", fontSize = 20.sp, color = Palette.Muted)
         }
         Spacer(Modifier.weight(1f))
+        if (onBack != null) {
+            Box(
+                Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.Card).border(1.dp, Palette.Line, RoundedCornerShape(16.dp))
+                    .clickable(onClick = onBack).padding(horizontal = 20.dp, vertical = 12.dp),
+            ) { Text("← 메인", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Primary) }
+            Spacer(Modifier.width(12.dp))
+        }
         Row(
             Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.OrangeSoft).border(1.dp, Palette.Orange, RoundedCornerShape(16.dp))
                 .clickable(onClick = onTestDrive).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -297,7 +294,7 @@ private fun Header(onTestDrive: () -> Unit) {
 }
 
 @Composable
-private fun VoiceBubble(text: String, listening: Boolean, onVoice: () -> Unit) {
+internal fun VoiceBubble(text: String, listening: Boolean, onVoice: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(if (listening) Palette.OrangeSoft else Palette.Card)
             .border(if (listening) 2.dp else 1.dp, if (listening) Palette.Orange else Palette.Line, RoundedCornerShape(30.dp))
@@ -319,7 +316,7 @@ private fun VoiceBubble(text: String, listening: Boolean, onVoice: () -> Unit) {
 
 /** 지도 위 색칠 기준 선택(시·도 / 시·군·구 / 읍·면·동). */
 @Composable
-private fun LevelSelector(level: Level, onSelect: (Level) -> Unit, modifier: Modifier) {
+internal fun LevelSelector(level: Level, onSelect: (Level) -> Unit, modifier: Modifier) {
     Row(
         modifier.clip(RoundedCornerShape(24.dp)).background(Color.White.copy(alpha = 0.95f))
             .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(4.dp),
@@ -410,7 +407,7 @@ private fun StatCard(icon: ImageVector, tint: Color, bg: Color, label: String, v
 }
 
 @Composable
-private fun MapLegend(modifier: Modifier) {
+internal fun MapLegend(modifier: Modifier) {
     Column(
         modifier.clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.92f)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -530,31 +527,7 @@ private fun RowScope.ActionButton(icon: ImageVector, label: String, enabled: Boo
 }
 
 @Composable
-private fun InfoChips(parked: Boolean) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Chip(Icons.Filled.Place, if (parked) "주차 중 · 상세 기능 사용 가능" else "주차 시 상세 기능 활성화", Palette.Green, Palette.GreenSoft, parked)
-        Chip(Icons.Filled.Info, "주행 중 시각 조작 제한", Palette.Orange, Palette.OrangeSoft, !parked)
-        Chip(Icons.Filled.Lock, "기록은 기기 안에만 저장", Palette.Muted, Palette.Card, false)
-        Chip(Icons.Filled.Settings, "민감 지역 기록 제외", Palette.Muted, Palette.Card, false)
-    }
-}
-
-@Composable
-private fun RowScope.Chip(icon: ImageVector, label: String, tint: Color, bg: Color, emphasized: Boolean) {
-    Row(
-        Modifier.weight(1f).height(50.dp).clip(RoundedCornerShape(25.dp)).background(bg)
-            .border(if (emphasized) 2.dp else 1.dp, if (emphasized) tint else Palette.Line, RoundedCornerShape(25.dp)),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(label, fontSize = 18.sp, color = if (emphasized) tint else Palette.Ink, fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Normal)
-    }
-}
-
-@Composable
-private fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit) {
+internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Card)
             .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(horizontal = 20.dp, vertical = 14.dp),

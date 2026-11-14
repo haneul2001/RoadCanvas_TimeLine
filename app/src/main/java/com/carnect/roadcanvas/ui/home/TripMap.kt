@@ -53,6 +53,14 @@ data class Viewport(val minLon: Double, val maxLon: Double, val minLat: Double, 
     companion object {
         val KOREA = Viewport(124.5, 131.0, 33.0, 38.7)
 
+        /** 현재 위치를 가운데 두고, 등록된 경로의 들를 곳도 모두 보이게. */
+        fun focus(center: Geo, others: List<Geo>): Viewport {
+            val pts = others + center
+            val halfW = max(pts.maxOf { kotlin.math.abs(it.second - center.second) } * 1.25, 0.55)
+            val halfH = max(pts.maxOf { kotlin.math.abs(it.first - center.first) } * 1.25, 0.38)
+            return Viewport(center.second - halfW, center.second + halfW, center.first - halfH, center.first + halfH)
+        }
+
         /** 이번 여행이 지난 지역과 경로가 모두 보이도록 넉넉하게 잡는다. */
         fun around(regions: List<Region>, track: List<TrackPoint>): Viewport {
             if (regions.isEmpty() && track.isEmpty()) return KOREA
@@ -155,11 +163,21 @@ fun TripMap(
     decorations: List<Decoration> = emptyList(),
     /** 꾸미기 모드면 손가락으로 그린다(이동 도구일 때만 끌어 옮김). */
     editor: DecoEditor? = null,
+    /** 메인 화면: 이 위치를 가운데 두고 '현재 위치' 표시를 단다. */
+    focus: Geo? = null,
+    /** 등록된 경로(들를 곳 이름, 좌표). 지금 위치부터 점선으로 잇고 번호를 단다. */
+    route: List<Pair<String, Geo>> = emptyList(),
 ) {
     val tripRegions = trip.trip?.let { t -> trip.visitsAt(index.level).filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
     val shown = frame ?: trip
     val visits = shown.visitsAt(index.level)
-    val viewport = remember(tripRegions.size, trip.track.size / 20) { Viewport.around(tripRegions, trip.track) }
+    val viewport = if (focus != null) {
+        // 위치가 조금씩 바뀔 때마다 화면이 흔들리지 않게 0.05° 단위로 묶어 다시 잡는다.
+        val key = (focus.first * 20).toInt() to (focus.second * 20).toInt()
+        remember(key, route) { Viewport.focus(focus, route.map { it.second }) }
+    } else {
+        remember(tripRegions.size, trip.track.size / 20) { Viewport.around(tripRegions, trip.track) }
+    }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     // 주행을 시작하면 사용자가 옮겨 둔 화면을 이번 여행 범위로 되돌린다.
@@ -286,9 +304,43 @@ fun TripMap(
         drawProvinceLabels(projection, provinceCenters.values, viewport, zoom)
         drawTrack(projection, shown.track)
         drawStickerStars(projection, shown)
-        drawPins(projection, shown, index.level)
+        if (focus == null) drawPins(projection, shown, index.level)
         drawDecorations(projection, decorations + listOfNotNull(draft))
+        if (route.isNotEmpty()) drawRoute(projection, focus, route)
+        focus?.let { drawHere(projection, it) }
     }
+}
+
+/** 등록된 경로: 지금 위치 → 들를 곳 순서로 점선, 번호 핀과 이름. */
+private fun DrawScope.drawRoute(p: Projection, from: Geo?, route: List<Pair<String, Geo>>) {
+    val pts = listOfNotNull(from) + route.map { it.second }
+    if (pts.size >= 2) {
+        val line = Path()
+        p.at(pts[0]).let { line.moveTo(it.x, it.y) }
+        pts.drop(1).forEach { g -> p.at(g).let { line.lineTo(it.x, it.y) } }
+        val dash = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(22f, 14f))
+        drawPath(line, Color.White, style = Stroke(width = 10f, cap = StrokeCap.Round, pathEffect = dash))
+        drawPath(line, Palette.Orange, style = Stroke(width = 6f, cap = StrokeCap.Round, pathEffect = dash))
+    }
+    val num = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 26f; color = android.graphics.Color.WHITE; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+    val name = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.LEFT; textSize = 24f; color = Palette.Ink.toArgb(); typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+    route.forEachIndexed { i, (label, g) ->
+        val c = p.at(g)
+        drawCircle(Color.White, radius = 22f, center = c)
+        drawCircle(Palette.Orange, radius = 18f, center = c)
+        drawContext.canvas.nativeCanvas.drawText("${i + 1}", c.x, c.y + 9f, num)
+        val w = name.measureText(label) + 20f
+        drawRoundRect(Color.White.copy(alpha = 0.92f), Offset(c.x + 26f, c.y - 18f), Size(w, 36f), CornerRadius(18f))
+        drawContext.canvas.nativeCanvas.drawText(label, c.x + 36f, c.y + 8f, name)
+    }
+}
+
+/** 현재 위치: 파란 점과 둘레. */
+private fun DrawScope.drawHere(p: Projection, g: Geo) {
+    val c = p.at(g)
+    drawCircle(Palette.Primary.copy(alpha = 0.18f), radius = 46f, center = c)
+    drawCircle(Color.White, radius = 18f, center = c)
+    drawCircle(Palette.Primary, radius = 13f, center = c)
 }
 
 private const val HIT_PX = 26f

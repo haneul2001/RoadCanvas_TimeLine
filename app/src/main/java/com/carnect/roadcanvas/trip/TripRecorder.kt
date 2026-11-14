@@ -385,6 +385,7 @@ class TripRecorder(
             addEvent(EventKind.DAY, "Day $day 출발", "${here?.let(::placeName) ?: "현재 위치"}에서 출발")
         }
 
+        val stayed = mutableListOf<String>()
         results.forEach { (level, result) ->
             val levelVisits = visits.getValue(level)
             result.second.forEach { event ->
@@ -398,7 +399,8 @@ class TripRecorder(
                     is TripEvent.StayCandidate -> {
                         val r = event.region
                         levelVisits[r.code]?.let { levelVisits[r.code] = it.copy(state = VisitState.STAY_CANDIDATE) }
-                        addEvent(EventKind.STAY, "${r.name} 머묾", "${r.province}${if (r.name != r.province) " " + r.name else ""} · 방문 확인 대기", level)
+                        addEvent(EventKind.STAY, "${r.name} 머묾", "${r.province}${if (r.name != r.province) " " + r.name else ""} · 머문 곳", level)
+                        if (level == Level.SGG) stayed += r.code
                     }
                 }
             }
@@ -418,6 +420,8 @@ class TripRecorder(
         val updated = trip.copy(distanceM = distance)
         replaceTrip(updated)
         _state.update { it.copy(visits = snapshotVisits(), trip = updated, track = it.track + point, current = current) }
+        // 한곳에 머물렀으면(반경 300m 안 5분 이상) 묻지 않고 바로 방문 확정하고 스티커를 준다.
+        stayed.forEach { confirmStay(it, point.timeMs) }
     }
 
     /** 주행 중 안내는 짧게: 시·도에 처음 들어올 때와 시·군·구 첫 방문만 말한다(읍·면·동은 너무 잦다). */
@@ -449,6 +453,18 @@ class TripRecorder(
     }
 
     private fun dayOf(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    init {
+        // 머물면 자동 확정하기 전에 쌓인 '확인 대기'는 앱을 켤 때 조용히 확정한다.
+        val pending = _state.value.pendingStays
+        if (pending.isNotEmpty()) {
+            quiet = true
+            val at = _state.value.track.lastOrNull()?.timeMs
+            pending.forEach { confirmStay(it, at) }
+            quiet = false
+            Log.i(TAG, "auto-confirmed pending stays $pending")
+        }
+    }
 
     companion object {
         /** 여행 요약 문장(기록된 값만 사용). [province]는 (시·도 이름, 다녀온 시·군·구 수, 전체 수). */

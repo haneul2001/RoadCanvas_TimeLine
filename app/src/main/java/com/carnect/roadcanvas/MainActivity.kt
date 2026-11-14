@@ -93,6 +93,27 @@ class MainActivity : ComponentActivity() {
                     val current = if (ready) screen else Screen.HOME
                     if (current != Screen.HOME) BackHandler { screen = Screen.HOME }
 
+                    // 메인에서 주차를 감지하거나 '타임랩스'를 누르면 TimeLine 화면에서 바로 재생
+                    var replayOnOpen by remember { mutableStateOf(false) }
+                    val simLine: String? = if (drive.running) {
+                                buildString {
+                                    append("×${drive.speedX} · ${drive.status}")
+                                    drive.remainingKm?.let { append(" · 남은 ${it.toInt()}km") }
+                                    // 지금 위치를 실시간으로: 시·군·구 + 읍·면·동, 좌표, 속도
+                                    val p = trip.track.lastOrNull()
+                                    if (p != null) {
+                                        val sgg = trip.current[Level.SGG]
+                                        val dong = trip.current[Level.DONG]?.name
+                                        append("\n지금 ")
+                                        append(listOfNotNull(sgg?.province, sgg?.name, dong).distinct().joinToString(" ").ifEmpty { "위치 확인 중" })
+                                        append(" (%.4f, %.4f)".format(p.lat, p.lon))
+                                        append(if (drive.status.contains("가는 중")) " · 시속 ${drive.kmh}km" else " · 정차")
+                                    }
+                                }
+                            } else {
+                                null
+                            }
+                    val simWaiting = drive.running && plan.target != null && plan.phase != PlanPhase.GUIDING
                     when (current) {
                         Screen.PLANNER -> PlannerScreen(
                             plan, listening, partial, sttStatus,
@@ -203,45 +224,45 @@ class MainActivity : ComponentActivity() {
                             val all = remember(trips) { recorder.loadPeriod(trips.filter { it.endMs != null }.map { it.id }) } ?: trip
                             com.carnect.roadcanvas.ui.home.DecorateScreen(indexes!!, all, app.decor, decos, custom, onClose = home)
                         }
-                        Screen.HOME -> HomeScreen(
+                        Screen.COLLECTION -> com.carnect.roadcanvas.ui.home.CollectionScreen(indexes!!, trip, onClose = home)
+                        Screen.DASHBOARD -> HomeScreen(
                             indexes = regions,
                             trip = trip,
                             parked = parked,
                             driving = vehicle.gear != null && !parked,
                             onToggleTrip = { toggleTrip(trip.recording) },
-                            onConfirmStay = { code -> recorder?.confirmStay(code) },
-                            onFeature = { f ->
-                                screen = when (f) {
-                                    Feature.SETTINGS -> Screen.SETTINGS
-                                    Feature.VOICE_PLANNER -> Screen.PLANNER
-                                    Feature.CANVAS_QUEST -> Screen.QUEST
-                                    Feature.SMART_DETOUR -> Screen.DETOUR
-                                    Feature.TIMELINE -> Screen.TRIPS
-                                    else -> Screen.HOME
-                                }
-                            },
+                            onFeature = { f -> screen = featureScreen(f, fromMain = false) },
                             voiceText = if (listening) partial else plan.message,
                             listening = listening,
                             onVoice = { if (listening) app.stt.cancel() else startListening() },
-                            simLine = if (drive.running) {
-                                buildString {
-                                    append("×${drive.speedX} · ${drive.status}")
-                                    drive.remainingKm?.let { append(" · 남은 ${it.toInt()}km") }
-                                    // 지금 위치를 실시간으로: 시·군·구 + 읍·면·동, 좌표, 속도
-                                    val p = trip.track.lastOrNull()
-                                    if (p != null) {
-                                        val sgg = trip.current[Level.SGG]
-                                        val dong = trip.current[Level.DONG]?.name
-                                        append("\n지금 ")
-                                        append(listOfNotNull(sgg?.province, sgg?.name, dong).distinct().joinToString(" ").ifEmpty { "위치 확인 중" })
-                                        append(" (%.4f, %.4f)".format(p.lat, p.lon))
-                                        append(if (drive.status.contains("가는 중")) " · 시속 ${drive.kmh}km" else " · 정차")
-                                    }
-                                }
-                            } else {
-                                null
+                            simLine = simLine,
+                            simWaiting = simWaiting,
+                            onSimDepart = { planner?.depart() },
+                            onSimStop = { testDrive?.stop() },
+                            onTestDrive = { screen = Screen.TEST },
+                            decorations = homeDecos,
+                            onDecorate = { screen = Screen.DECORATE },
+                            replayOnOpen = replayOnOpen,
+                            onBack = { replayOnOpen = false; screen = Screen.HOME },
+                        )
+                        Screen.HOME -> com.carnect.roadcanvas.ui.home.MainScreen(
+                            indexes = regions,
+                            trip = trip,
+                            plan = plan,
+                            parked = parked,
+                            driving = vehicle.gear != null && !parked,
+                            onToggleTrip = { toggleTrip(trip.recording) },
+                            onFeature = { f ->
+                                if (f == Feature.ROUTE_REPLAY) replayOnOpen = true
+                                screen = featureScreen(f, fromMain = true)
                             },
-                            simWaiting = drive.running && plan.target != null && plan.phase != PlanPhase.GUIDING,
+                            onDepart = { planner?.depart() },
+                            onParkedAfterDrive = { replayOnOpen = true; screen = Screen.DASHBOARD },
+                            voiceText = if (listening) partial else plan.message,
+                            listening = listening,
+                            onVoice = { if (listening) app.stt.cancel() else startListening() },
+                            simLine = simLine,
+                            simWaiting = simWaiting,
                             onSimDepart = { planner?.depart() },
                             onSimStop = { testDrive?.stop() },
                             onTestDrive = { screen = Screen.TEST },
@@ -280,7 +301,18 @@ class MainActivity : ComponentActivity() {
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 
-    private enum class Screen { HOME, PLANNER, QUEST, DETOUR, TRIPS, SETTINGS, TEST, DECORATE }
+    private enum class Screen { HOME, DASHBOARD, COLLECTION, PLANNER, QUEST, DETOUR, TRIPS, SETTINGS, TEST, DECORATE }
+
+    /** 런처 타일 → 화면. 메인의 TimeLine은 여행 대시보드, 대시보드의 '기록 보기'는 여행 목록. */
+    private fun featureScreen(f: Feature, fromMain: Boolean): Screen = when (f) {
+        Feature.SETTINGS -> Screen.SETTINGS
+        Feature.VOICE_PLANNER -> Screen.PLANNER
+        Feature.CANVAS_QUEST -> Screen.QUEST
+        Feature.SMART_DETOUR -> Screen.DETOUR
+        Feature.COLLECTION -> Screen.COLLECTION
+        Feature.TIMELINE -> if (fromMain) Screen.DASHBOARD else Screen.TRIPS
+        Feature.ROUTE_REPLAY, Feature.AUTO_CANVAS -> Screen.DASHBOARD
+    }
 
     private companion object {
         const val RECORD_AUDIO = android.Manifest.permission.RECORD_AUDIO
