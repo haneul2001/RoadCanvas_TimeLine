@@ -309,7 +309,7 @@ fun TripMap(
                 val visit = visits[region.code]
                 drawPath(path, if (visit == null) Palette.Unvisited else rainbow(order[region.code] ?: 0, visit.state))
                 // 확대해도 경계선 두께는 그대로 보이게
-                drawPath(path, Color.White, style = Stroke(width = borderWidth / zoom))
+                drawPath(path, Palette.MapBorder, style = Stroke(width = borderWidth / zoom))
             }
         }
         // 선·글자·핀은 확대와 상관없이 같은 크기로 그린다.
@@ -346,7 +346,7 @@ private fun DrawScope.drawRoute(p: Projection, from: Geo?, route: List<Pair<Stri
         drawCircle(Palette.Orange, radius = 18f, center = c)
         drawContext.canvas.nativeCanvas.drawText("${i + 1}", c.x, c.y + 9f, num)
         val w = name.measureText(label) + 20f
-        drawRoundRect(Color.White.copy(alpha = 0.92f), Offset(c.x + 26f, c.y - 18f), Size(w, 36f), CornerRadius(18f))
+        drawRoundRect(Palette.Surface.copy(alpha = 0.92f), Offset(c.x + 26f, c.y - 18f), Size(w, 36f), CornerRadius(18f))
         drawContext.canvas.nativeCanvas.drawText(label, c.x + 36f, c.y + 8f, name)
     }
 }
@@ -415,7 +415,7 @@ private fun DrawScope.drawSpots(p: Projection, spots: List<com.carnect.roadcanva
         bitmaps.get(sp.kind)?.let { drawSticker(it, c, 52) } ?: drawCircle(Palette.Amber, 10f, c)
         if (!names) return@forEach
         val w = name.measureText(sp.name) + 14f
-        drawRoundRect(Color.White.copy(alpha = 0.85f), Offset(c.x - w / 2, c.y + 26f), Size(w, 26f), CornerRadius(13f))
+        drawRoundRect(Palette.Surface.copy(alpha = 0.85f), Offset(c.x - w / 2, c.y + 26f), Size(w, 26f), CornerRadius(13f))
         drawContext.canvas.nativeCanvas.drawText(sp.name, c.x, c.y + 45f, name)
     }
 }
@@ -537,6 +537,12 @@ private fun DrawScope.drawPins(p: Projection, trip: TripState, level: Level) {
     if (trip.track.isEmpty()) return
     val pins = mutableListOf<Pair<TrackPoint, String>>()
     val first = trip.track.first()
+    // 여러 여행을 이어 볼 때는 이름표가 너무 많아지므로 지금 위치만
+    if (trip.segments.size > 1) {
+        val here = if (level == Level.DONG) trip.current[Level.DONG]?.name else trip.current[Level.SGG]?.let(TripRecorder::placeName)
+        here?.let { drawPinList(p, listOf(trip.track.last() to it)) }
+        return
+    }
     trip.events.firstOrNull { it.kind == EventKind.START }?.let { pins += first to it.detail.substringBefore("에서 출발") }
     // 핀 이름은 읽기 쉬운 시·군·구 기준(읍·면·동 이름은 너무 잘다).
     trip.events.filter { it.kind == EventKind.STAY && it.level == Level.SGG }.forEach { e ->
@@ -546,6 +552,10 @@ private fun DrawScope.drawPins(p: Projection, trip: TripState, level: Level) {
     val here = if (level == Level.DONG) trip.current[Level.DONG]?.name else trip.current[Level.SGG]?.let(TripRecorder::placeName)
     here?.let { pins += trip.track.last() to it }
 
+    drawPinList(p, pins.distinctBy { it.second })
+}
+
+private fun DrawScope.drawPinList(p: Projection, pins: List<Pair<TrackPoint, String>>) {
     val text = Paint().apply {
         isAntiAlias = true
         textAlign = Paint.Align.CENTER
@@ -553,7 +563,7 @@ private fun DrawScope.drawPins(p: Projection, trip: TripState, level: Level) {
         color = android.graphics.Color.WHITE
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    pins.distinctBy { it.second }.forEach { (pt, label) ->
+    pins.forEach { (pt, label) ->
         val c = Offset(p.x(pt.lon), p.y(pt.lat))
         drawCircle(Color.White, radius = 12f, center = c)
         drawCircle(Palette.Primary, radius = 12f, center = c, style = Stroke(width = 5f))

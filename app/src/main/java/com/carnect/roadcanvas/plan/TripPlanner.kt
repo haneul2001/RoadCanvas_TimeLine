@@ -21,6 +21,8 @@ data class PlanState(
     val heard: String = "",
     /** 앱이 마지막으로 한 말(화면에도 보여 준다). */
     val message: String = "",
+    /** 말할 때마다 1씩 늘어난다(같은 문장도 다시 잠깐 보이게). */
+    val messageSeq: Int = 0,
 ) {
     val target: Place? get() = stops.getOrNull(index)
     val remaining: List<Place> get() = stops.drop(index)
@@ -124,9 +126,11 @@ class TripPlanner(
         advance(arrivedAt = null)
     }
 
-    fun clear() {
+    /** 계획을 비운다. [announce]면 지웠다고 말한다(사용자가 직접 지울 때만). */
+    fun clear(announce: Boolean = false) {
         if (_state.value.phase == PlanPhase.GUIDING) navi.cancelRoute()
-        _state.value = PlanState(message = "여행 계획을 지웠어요.")
+        _state.value = PlanState()
+        if (announce) say("여행 계획을 지웠어요.")
     }
 
     fun onNavi(event: NaviEvent) {
@@ -264,7 +268,7 @@ class TripPlanner(
 
     private fun say(text: String) {
         Log.i(TAG, "plan say '$text'")
-        _state.update { it.copy(message = text) }
+        _state.update { it.copy(message = text, messageSeq = it.messageSeq + 1) }
         tts.speak(text, flush = true)
     }
 

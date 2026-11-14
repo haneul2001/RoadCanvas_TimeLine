@@ -50,6 +50,39 @@ class DemoData(private val recorder: TripRecorder, private val roads: RoadBook) 
         }
     }
 
+    /**
+     * 시험용: [year]년 1월 첫 토요일부터 오늘까지 매주 토요일 여행 하나씩(도시 두세 곳, 실제 도로).
+     * 월별·연도별 타임랩스와 히스토리를 시험하려는 것이라 도시는 주마다 정해진 무작위로 고른다.
+     */
+    suspend fun generateWeekly(year: Int, onProgress: (Int, Int) -> Unit): Int = withContext(Dispatchers.Default) {
+        if (recorder.state.value.recording) return@withContext 0
+        val cities = roads.cityNames
+        val today = java.time.LocalDate.now()
+        var day = java.time.LocalDate.of(year, 1, 1)
+        while (day.dayOfWeek != java.time.DayOfWeek.SATURDAY) day = day.plusDays(1)
+        val weeks = generateSequence(day) { it.plusWeeks(1) }.takeWhile { !it.isAfter(today) && it.year == year }.toList()
+        recorder.quiet = true
+        recorder.simulating = true
+        try {
+            weeks.forEachIndexed { n, d ->
+                val rnd = java.util.Random(d.toEpochDay())
+                val a = cities[rnd.nextInt(cities.size)]
+                val stops = mutableListOf(a)
+                repeat(1 + rnd.nextInt(2)) {
+                    val near = cities.filter { it !in stops && roads.cityRoute(stops.last(), it) != null }
+                    if (near.isNotEmpty()) stops += near[rnd.nextInt(near.size)]
+                }
+                val start = d.atTime(8 + rnd.nextInt(3), 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                drive(start, SampleTrip(0, 0, stops, setOf(stops.last())))
+                withContext(Dispatchers.Main) { onProgress(n + 1, weeks.size) }
+            }
+            weeks.size
+        } finally {
+            recorder.simulating = false
+            recorder.quiet = false
+        }
+    }
+
     private fun drive(startMs: Long, s: SampleTrip) {
         recorder.start(startMs, withLocation = false)
         var t = startMs

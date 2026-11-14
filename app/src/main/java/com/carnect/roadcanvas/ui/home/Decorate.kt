@@ -135,7 +135,7 @@ fun DecorateScreen(
                     editor = DecoEditor(tool, color, width, sticker, onAdd = decor::add, onErase = decor::remove),
                 )
                 Row(
-                    Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.95f)).padding(4.dp),
+                    Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(20.dp)).background(Palette.Surface.copy(alpha = 0.95f)).padding(4.dp),
                 ) {
                     Level.entries.forEach { l -> ToolButton(l.label, l == level, { level = l }) }
                 }
@@ -149,7 +149,7 @@ fun DecorateScreen(
                     },
                     fontSize = 17.sp, color = Palette.Ink,
                     modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).clip(RoundedCornerShape(14.dp))
-                        .background(Color.White.copy(alpha = 0.92f)).padding(horizontal = 14.dp, vertical = 8.dp),
+                        .background(Palette.Surface.copy(alpha = 0.92f)).padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
             // 스티커
@@ -265,7 +265,7 @@ private fun StickerPanel(
                     Box(Modifier.weight(1f)) {
                         StickerChip(d, selected == d, { onPick(d) }, Modifier.fillMaxWidth())
                         Box(
-                            Modifier.align(Alignment.TopEnd).padding(4.dp).size(26.dp).clip(CircleShape).background(Color.White)
+                            Modifier.align(Alignment.TopEnd).padding(4.dp).size(26.dp).clip(CircleShape).background(Palette.Surface)
                                 .border(1.dp, Palette.Line, CircleShape).clickable { onDeleteCustom(s.id) },
                             contentAlignment = Alignment.Center,
                         ) { Text("×", fontSize = 16.sp, color = Palette.Muted) }

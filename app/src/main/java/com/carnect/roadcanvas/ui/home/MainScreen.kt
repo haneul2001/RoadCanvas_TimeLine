@@ -41,6 +41,7 @@ import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.RegionIndex
 import com.carnect.roadcanvas.trip.TripRecorder
 import com.carnect.roadcanvas.trip.TripState
+import kotlinx.coroutines.launch
 
 /**
  * 메인 화면. 가운데 지도는 현재 위치를 중심으로 보이고, 등록된 경로(Voice Planner·추천으로 정한 들를 곳)가 있으면
@@ -76,7 +77,41 @@ fun MainScreen(
     onGoSpot: (com.carnect.roadcanvas.data.Spot) -> Unit = {},
     onCourse: (String, List<com.carnect.roadcanvas.data.Spot>) -> Unit = { _, _ -> },
     onStats: () -> Unit = {},
+    /** 저장된 여행 목록과 기간 기록 불러오기(여행 히스토리·기간 타임랩스). */
+    trips: List<com.carnect.roadcanvas.trip.Trip> = emptyList(),
+    loadPeriod: (List<Long>) -> TripState? = { null },
 ) {
+    // 날짜 토글(년·월)과 여행 히스토리 패널
+    val today = java.time.LocalDate.now()
+    var year by rememberSaveable { mutableStateOf(today.year) }
+    var month by rememberSaveable { mutableStateOf(today.monthValue) }
+    var historyOpen by rememberSaveable { mutableStateOf(false) }
+    // 기간 타임랩스: (제목, 기록, 재생 길이 ms)
+    var playing by remember { mutableStateOf<Triple<String, TripState, Int>?>(null) }
+    var playRun by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+    val replay = remember(playing) { playing?.let { (_, st, _) -> indexes?.let { Replay(st, it, st.segments.map { s -> s.second }.toSet().ifEmpty { setOfNotNull(st.trip?.id) }) } }?.takeIf { it.playable } }
+    LaunchedEffect(playRun) {
+        val p = playing ?: return@LaunchedEffect
+        progress.snapTo(0f)
+        progress.animateTo(1f, androidx.compose.animation.core.tween(p.third, easing = androidx.compose.animation.core.LinearEasing))
+        kotlinx.coroutines.delay(2_000)
+        playing = null
+    }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var loadingPlay by remember { mutableStateOf(false) }
+    // 기간 기록(여행 수십 개)은 무거우니 백그라운드에서 읽는다.
+    fun play(title: String, ids: List<Long>, ms: Int) {
+        if (loadingPlay) return
+        loadingPlay = true
+        scope.launch {
+            val st = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { loadPeriod(ids) }
+            loadingPlay = false
+            if (st == null) return@launch
+            playing = Triple(title, st, ms)
+            playRun++
+        }
+    }
     // 지도에서 누른 시·군·구(추천 여행지 카드)
     var picked by remember { mutableStateOf<com.carnect.roadcanvas.region.Region?>(null) }
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
@@ -101,7 +136,13 @@ fun MainScreen(
                 HereCard(indexes, trip, parked, driving, onToggleTrip, locationAllowed, onAllowLocation, Modifier.weight(1f))
             }
             Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea)) {
-                if (index != null) {
+                val pl = playing
+                // 한 프레임에 한 번만 계산(지도와 막대가 같이 쓴다)
+                val playFrame = if (pl != null && replay != null) replay.frameAt(replay.timeAt(progress.value)) else null
+                if (index != null && pl != null && replay != null) {
+                    // 기간 타임랩스: 그 기간 전체가 보이는 지도에 시간 순으로 그린다
+                    TripMap(index, pl.second, interactive = false, Modifier.fillMaxSize(), frame = playFrame, decorations = decorations)
+                } else if (index != null) {
                     TripMap(
                         index, trip, interactive = parked, Modifier.fillMaxSize(),
                         decorations = decorations, focus = here, route = route,
@@ -111,9 +152,15 @@ fun MainScreen(
                 }
                 Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LevelSelector(level, onSelect = { level = it }, Modifier)
+                    DateToggles(
+                        trips, year, month, historyOpen,
+                        onYear = { year = it; historyOpen = true },
+                        onMonth = { month = it; historyOpen = true },
+                        onHistory = { historyOpen = !historyOpen },
+                    )
                     if (parked) {
                         Row(
-                            Modifier.clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.95f))
+                            Modifier.clip(RoundedCornerShape(20.dp)).background(Palette.Surface.copy(alpha = 0.95f))
                                 .border(1.dp, Palette.Line, RoundedCornerShape(20.dp)).clickable(onClick = onDecorate)
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                         ) { Text("🎨  지도 꾸미기", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
@@ -124,7 +171,17 @@ fun MainScreen(
                         if (locationAllowed) "현재 위치를 받는 중이에요…" else "위치를 허용하면 현재 위치가 지도 가운데에 표시돼요",
                         fontSize = 18.sp, color = Palette.Ink,
                         modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.92f)).padding(horizontal = 20.dp, vertical = 12.dp),
+                            .background(Palette.Surface.copy(alpha = 0.92f)).padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                }
+                if (historyOpen && pl == null) {
+                    HistoryPanel(
+                        trips, trip, year, month,
+                        onPlayMonth = { play("${year}년 ${month}월", trips.inPeriod(year, month).map { it.id }, 16_000) },
+                        onPlayYear = { play("${year}년", trips.inPeriod(year).map { it.id }, 26_000) },
+                        onPlayTrip = { t -> play(t.date().let { "${it.monthValue}월 ${it.dayOfMonth}일 여행" }, listOf(t.id), 12_000) },
+                        onClose = { historyOpen = false },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                     )
                 }
                 picked?.let { r ->
@@ -136,7 +193,19 @@ fun MainScreen(
                             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                         )
                 }
-                if (simLine != null) {
+                if (pl != null && replay != null) {
+                    val frame = playFrame ?: return@Box
+                    val byId = trips.associateBy { it.id }
+                    PeriodReplayBar(
+                        pl.first, replay, frame, progress.value,
+                        dateOf = { t ->
+                            val id = pl.second.segments.lastOrNull { it.first <= t }?.second ?: pl.second.trip?.id
+                            byId[id]?.date()?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: ""
+                        },
+                        onStop = { playing = null },
+                        modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
+                    )
+                } else if (simLine != null) {
                     SimBar(simLine, simWaiting, onSimDepart, onSimStop, Modifier.align(Alignment.BottomStart).padding(14.dp))
                 } else {
                     MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))

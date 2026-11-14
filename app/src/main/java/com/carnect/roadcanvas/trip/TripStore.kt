@@ -97,6 +97,30 @@ class TripStore(context: Context) {
             }
     }.getOrDefault(emptyList())
 
+    /** 여러 여행의 경로를 파일 한 번 읽어서. */
+    fun loadTracks(ids: Set<Long>): Map<Long, List<TrackPoint>> = runCatching {
+        if (!trackFile.exists()) return emptyMap()
+        val out = HashMap<Long, MutableList<TrackPoint>>()
+        trackFile.forEachLine { line ->
+            val parts = line.split(',')
+            if (parts.size != 4) return@forEachLine
+            val id = parts[3].toLongOrNull() ?: return@forEachLine
+            if (id in ids) out.getOrPut(id) { mutableListOf() } += TrackPoint(parts[0].toLong(), parts[1].toDouble(), parts[2].toDouble())
+        }
+        out
+    }.getOrDefault(emptyMap())
+
+    /** 여러 여행의 타임라인을 파일 한 번 읽어서. */
+    fun loadEventsFor(ids: Set<Long>): Map<Long, List<TimelineEvent>> = runCatching {
+        if (!eventsFile.exists()) return emptyMap()
+        eventsFile.readLines().filter { it.isNotBlank() }.map(::JSONObject).filter { it.getLong("trip") in ids }.map {
+            TimelineEvent(
+                it.getLong("t"), it.getLong("trip"), EventKind.valueOf(it.getString("kind")), it.getString("title"), it.getString("detail"),
+                it.optString("level").takeIf(String::isNotEmpty)?.let(Level::valueOf),
+            )
+        }.groupBy { it.tripId }
+    }.getOrDefault(emptyMap())
+
     fun appendPoint(p: TrackPoint, tripId: Long) {
         trackFile.appendText("${p.timeMs},${p.lat},${p.lon},$tripId\n")
     }

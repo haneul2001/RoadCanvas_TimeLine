@@ -512,6 +512,8 @@ fun SettingsScreen(
     hereName: String?,
     recording: Boolean,
     onTheme: (MapTheme) -> Unit,
+    themeMode: ThemeMode,
+    onThemeMode: (ThemeMode) -> Unit,
     onAddZone: () -> Unit,
     onRemoveZone: (ExcludedZone) -> Unit,
     onClearAll: () -> Unit,
@@ -527,6 +529,13 @@ fun SettingsScreen(
     Panel("설정 · 개인정보", if (autoRecord) "자동 기록이 켜져 있어요 · 위치는 기기 안에만 저장해요" else "위치 기록은 '여행 시작'을 누른 뒤에만, 기기 안에만 저장해요", onClose, { PanelIcon(Icons.Filled.Settings, Palette.Primary) }) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             CardBox(Modifier.weight(1f).fillMaxHeight()) {
+                Text("화면 모드", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemeMode.entries.forEach { m ->
+                        FilterChip((when (m) { ThemeMode.LIGHT -> "☀️ "; ThemeMode.DARK -> "🌙 "; ThemeMode.SYSTEM -> "⚙️ " }) + m.label, themeMode == m) { onThemeMode(m) }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Text("지도 색", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     MapTheme.entries.forEach { t ->
@@ -597,7 +606,7 @@ fun SettingsScreen(
                                 .background(if (autoRecord) Palette.Green else Palette.Unvisited)
                                 .clickable { if (autoRecord) onAutoRecord(false) else confirmAuto = true },
                             contentAlignment = if (autoRecord) Alignment.CenterEnd else Alignment.CenterStart,
-                        ) { Box(Modifier.padding(5.dp).size(38.dp).clip(CircleShape).background(Color.White)) }
+                        ) { Box(Modifier.padding(5.dp).size(38.dp).clip(CircleShape).background(Palette.Surface)) }
                     }
                     if (confirmAuto && !autoRecord) {
                         Text(
@@ -649,6 +658,8 @@ fun TestDriveScreen(
     onDemo: (() -> Unit)?,
     /** 샘플 만들기 진행 상황(없으면 null). */
     demoStatus: String?,
+    /** 시험용: 올해 매주 여행 하나씩 채우기. */
+    onWeekly: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     var fromSeoul by remember { mutableStateOf(true) }
@@ -699,7 +710,13 @@ fun TestDriveScreen(
                     Text("시연용 샘플 여행", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Text("지난 6주 동안 춘천·전주·여수·경주·부산·속초·강릉을 다녀온 것처럼 여행 6개를 바로 만들어요. 실제 기록과 같은 방식으로 쌓여 지도·타임랩스·미션에 반영돼요.", fontSize = 17.sp, color = Palette.Muted)
                     if (demoStatus != null) Text(demoStatus, fontSize = 18.sp, color = Palette.Primary)
-                    Pill("샘플 여행 만들기", Palette.Primary, Palette.PrimarySoft, onDemo, enabled = !recording && !drive.running && demoStatus?.endsWith("중…") != true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Pill("샘플 여행 만들기", Palette.Primary, Palette.PrimarySoft, onDemo, enabled = !recording && !drive.running && demoStatus?.contains("중…") != true)
+                        if (onWeekly != null) {
+                            Pill("${java.time.LocalDate.now().year}년 매주 여행 채우기", Palette.Teal, Palette.TealSoft, onWeekly, enabled = !recording && !drive.running && demoStatus?.contains("중…") != true)
+                        }
+                    }
+                    Text("매주 여행 채우기: 올해 1월부터 매주 토요일 여행 하나씩(도시 사이 실제 도로)을 만들어 월별·연도별 타임랩스를 시험해요.", fontSize = 15.sp, color = Palette.Muted)
                     Spacer(Modifier.height(12.dp))
                 }
                 Text("초기화", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)

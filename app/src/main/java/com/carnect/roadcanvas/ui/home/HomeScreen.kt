@@ -173,7 +173,7 @@ fun HomeScreen(
                     LevelSelector(level, onSelect = { level = it }, Modifier)
                     if (parked && replay == null) {
                         Row(
-                            Modifier.clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.95f))
+                            Modifier.clip(RoundedCornerShape(20.dp)).background(Palette.Surface.copy(alpha = 0.95f))
                                 .border(1.dp, Palette.Line, RoundedCornerShape(20.dp)).clickable(onClick = onDecorate)
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -210,7 +210,7 @@ private fun ReplayBar(replay: Replay, frame: TripState, progress: Float, onStop:
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(44.dp).clip(CircleShape).background(Color.White).clickable(onClick = onStop),
+            Modifier.size(44.dp).clip(CircleShape).background(Palette.Surface).clickable(onClick = onStop),
             contentAlignment = Alignment.Center,
         ) { Box(Modifier.size(14.dp).background(Palette.Ink)) }
         Spacer(Modifier.width(16.dp))
@@ -251,7 +251,7 @@ internal fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop
             Spacer(Modifier.width(8.dp))
         }
         Box(
-            Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White).clickable(onClick = onStop)
+            Modifier.clip(RoundedCornerShape(12.dp)).background(Palette.Surface).clickable(onClick = onStop)
                 .padding(horizontal = 18.dp, vertical = 10.dp),
         ) { Text("멈춤", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
     }
@@ -313,7 +313,7 @@ internal fun VoiceBubble(text: String, listening: Boolean, onVoice: () -> Unit) 
 @Composable
 internal fun LevelSelector(level: Level, onSelect: (Level) -> Unit, modifier: Modifier) {
     Row(
-        modifier.clip(RoundedCornerShape(24.dp)).background(Color.White.copy(alpha = 0.95f))
+        modifier.clip(RoundedCornerShape(24.dp)).background(Palette.Surface.copy(alpha = 0.95f))
             .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(4.dp),
     ) {
         Level.entries.forEach { l ->
@@ -390,7 +390,7 @@ private fun StatCard(icon: ImageVector, tint: Color, bg: Color, label: String, v
         modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(bg).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(48.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(48.dp).clip(CircleShape).background(Palette.Surface), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(28.dp))
         }
         Spacer(Modifier.width(14.dp))
@@ -404,7 +404,7 @@ private fun StatCard(icon: ImageVector, tint: Color, bg: Color, label: String, v
 @Composable
 internal fun MapLegend(modifier: Modifier) {
     Column(
-        modifier.clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.92f)).padding(14.dp),
+        modifier.clip(RoundedCornerShape(14.dp)).background(Palette.Surface.copy(alpha = 0.92f)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -464,7 +464,7 @@ private fun TimelineRow(e: TimelineEvent, first: Boolean, last: Boolean) {
                     .background(Palette.Line),
             )
             Box(
-                Modifier.padding(top = 10.dp).size(18.dp).clip(CircleShape).background(Color.White)
+                Modifier.padding(top = 10.dp).size(18.dp).clip(CircleShape).background(Palette.Surface)
                     .border(4.dp, accent, CircleShape),
             )
         }

@@ -33,6 +33,8 @@ data class TripState(
     val stickers: List<Sticker> = emptyList(),
     /** 화면에 보여 줄 지금 위치. 기록 중이 아니어도 앱이 열려 있으면 받지만 저장하지 않는다. */
     val here: TrackPoint? = null,
+    /** 여러 여행을 이어 본 기록이면 (이어 붙인 기록에서 그 여행이 시작하는 시각, 여행 id). */
+    val segments: List<Pair<Long, Long>> = emptyList(),
 ) {
     fun visitsAt(level: Level): Map<String, VisitRecord> = visits[level].orEmpty()
 
@@ -103,14 +105,19 @@ class TripRecorder(
         val shift = HashMap<Long, Long>()
         val track = mutableListOf<TrackPoint>()
         val events = mutableListOf<TimelineEvent>()
+        val segments = mutableListOf<Pair<Long, Long>>()
         var cursor = list.first().startMs
+        val ids = list.map { it.id }.toSet()
+        val tracks = store.loadTracks(ids)
+        val allEvents = store.loadEventsFor(ids)
         list.forEach { t ->
-            val pts = if (t.id == _state.value.trip?.id) _state.value.track else store.loadTrack(t.id)
+            val pts = if (t.id == _state.value.trip?.id) _state.value.track else tracks[t.id].orEmpty()
             val start = pts.firstOrNull()?.timeMs ?: t.startMs
             val d = start - cursor
             shift[t.id] = d
+            if (pts.isNotEmpty()) segments += cursor to t.id
             pts.forEachIndexed { i, p -> track += p.copy(timeMs = p.timeMs - d, newSegment = i == 0 && track.isNotEmpty()) }
-            val evs = if (t.id == _state.value.trip?.id) _state.value.events else store.loadEvents(t.id)
+            val evs = if (t.id == _state.value.trip?.id) _state.value.events else allEvents[t.id].orEmpty()
             evs.forEach { e -> events += e.copy(timeMs = e.timeMs - d) }
             cursor = (track.lastOrNull()?.timeMs ?: cursor) + 60_000
         }
@@ -125,6 +132,7 @@ class TripRecorder(
             track = track,
             events = events.sortedBy { it.timeMs },
             stickers = stickers.filter { it.tripId <= last },
+            segments = segments,
         )
     }
 

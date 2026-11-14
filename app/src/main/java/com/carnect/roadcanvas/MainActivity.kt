@@ -95,7 +95,19 @@ class MainActivity : ComponentActivity() {
         val emptyPlan = MutableStateFlow(PlanState())
         val emptyDrive = MutableStateFlow(DriveState())
         setContent {
-            MaterialTheme {
+            // 화면 모드: 설정(밝게/어둡게/시스템 따라)
+            var themeMode by rememberSaveable {
+                mutableStateOf(runCatching { com.carnect.roadcanvas.ui.home.ThemeMode.valueOf(prefs.getString("theme_mode", null) ?: "LIGHT") }
+                    .getOrDefault(com.carnect.roadcanvas.ui.home.ThemeMode.LIGHT))
+            }
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val dark = when (themeMode) {
+                com.carnect.roadcanvas.ui.home.ThemeMode.LIGHT -> false
+                com.carnect.roadcanvas.ui.home.ThemeMode.DARK -> true
+                com.carnect.roadcanvas.ui.home.ThemeMode.SYSTEM -> systemDark
+            }
+            com.carnect.roadcanvas.ui.home.Palette.dark = dark
+            MaterialTheme(colorScheme = if (dark) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()) {
                 Surface(Modifier.fillMaxSize()) {
                     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
                     var demoStatus by remember { mutableStateOf<String?>(null) }
@@ -109,6 +121,7 @@ class MainActivity : ComponentActivity() {
                     val drive by ((if (loaded) app.testDrive?.state else null) ?: emptyDrive).collectAsStateWithLifecycle()
                     val homeDecos by app.decor.items.collectAsStateWithLifecycle()
                     val autoRecord by app.autoRecord.collectAsStateWithLifecycle()
+                    val mainTrips by ((if (loaded) app.tripRecorder?.tripList else null) ?: MutableStateFlow(emptyList())).collectAsStateWithLifecycle()
                     val testDrive = if (loaded) app.testDrive else null
                     val listening by app.stt.listening.collectAsStateWithLifecycle()
                     val partial by app.stt.partial.collectAsStateWithLifecycle()
@@ -126,6 +139,14 @@ class MainActivity : ComponentActivity() {
 
                     // 메인에서 주차를 감지하거나 '타임랩스'를 누르면 TimeLine 화면에서 바로 재생
                     var replayOnOpen by remember { mutableStateOf(false) }
+                    // 앱이 한 말은 말풍선에 12초만 보이고 다시 '목적지를 말해 보세요'로 돌아간다.
+                    var bubble by remember { mutableStateOf("") }
+                    androidx.compose.runtime.LaunchedEffect(plan.messageSeq) {
+                        if (plan.messageSeq == 0) { bubble = ""; return@LaunchedEffect }
+                        bubble = plan.message
+                        kotlinx.coroutines.delay(12_000)
+                        bubble = ""
+                    }
                     // 경계 데이터를 다 읽어 기록기가 생기면 화면용 위치를 켠다.
                     androidx.compose.runtime.LaunchedEffect(loaded) {
                         if (loaded && locationAllowed.value) app.tripRecorder?.watch(true)
@@ -172,7 +193,7 @@ class MainActivity : ComponentActivity() {
                             onSay = { planner!!.hear(it) },
                             onDepart = { planner!!.depart() },
                             onSkip = { planner!!.skip() },
-                            onClear = { planner!!.clear() },
+                            onClear = { planner!!.clear(announce = true) },
                             onClose = home,
                         )
                         Screen.QUEST -> QuestScreen(
@@ -223,6 +244,11 @@ class MainActivity : ComponentActivity() {
                                         app.setAutoRecord(on)
                                     }
                                 },
+                                themeMode = themeMode,
+                                onThemeMode = { m ->
+                                    themeMode = m
+                                    prefs.edit().putString("theme_mode", m.name).apply()
+                                },
                                 onTheme = { t ->
                                     com.carnect.roadcanvas.ui.home.MapColors.theme = t
                                     prefs.edit().putString("map_theme", t.name).apply()
@@ -257,6 +283,15 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             demoStatus = demoStatus,
+                            onWeekly = app.demoData?.let { demo ->
+                                {
+                                    demoStatus = "매주 여행 만드는 중…"
+                                    scope.launch {
+                                        val n = demo.generateWeekly(java.time.LocalDate.now().year) { i, total -> demoStatus = "매주 여행 만드는 중… ($i/$total)" }
+                                        demoStatus = if (n > 0) "올해 매주 여행 ${n}개를 만들었어요. 메인의 여행 히스토리에서 확인하세요." else "기록 중에는 만들 수 없어요."
+                                    }
+                                }
+                            },
                             onPlan = { text, fromSeoul -> planner!!.hear(text, if (fromSeoul) TripPlanner.DEFAULT_START else null) },
                             onSpeed = { testDrive!!.setSpeed(it) },
                             onStart = { fromSeoul ->
@@ -295,7 +330,7 @@ class MainActivity : ComponentActivity() {
                             driving = vehicle.gear != null && !parked,
                             onToggleTrip = { toggleTrip(trip.recording) },
                             onFeature = { f -> screen = featureScreen(f, fromMain = false) },
-                            voiceText = if (listening) partial else plan.message,
+                            voiceText = if (listening) partial else bubble,
                             listening = listening,
                             onVoice = { if (listening) app.stt.cancel() else startListening() },
                             simLine = simLine,
@@ -321,7 +356,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onDepart = { planner?.depart() },
                             onParkedAfterDrive = { replayOnOpen = true; screen = Screen.DASHBOARD },
-                            voiceText = if (listening) partial else plan.message,
+                            voiceText = if (listening) partial else bubble,
                             listening = listening,
                             onVoice = { if (listening) app.stt.cancel() else startListening() },
                             simLine = simLine,
@@ -340,6 +375,8 @@ class MainActivity : ComponentActivity() {
                             },
                             onCourse = { name, course -> planner?.planCourse(course.map(toPlace), name) },
                             onStats = { screen = Screen.STATS },
+                            trips = mainTrips,
+                            loadPeriod = { ids -> recorder?.loadPeriod(ids) },
                         )
                     }
                     // 정차 중에만 팝업(주행 중엔 음성 안내만)

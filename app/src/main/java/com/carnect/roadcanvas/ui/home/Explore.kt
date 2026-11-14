@@ -57,7 +57,7 @@ fun BrandTitle(subtitle: String = "지금, 당신의 여행이 지도 위에 쌓
         Column {
             Text(
                 buildAnnotatedString {
-                    withStyle(SpanStyle(color = Color(0xFF1B2A6B))) { append("Road") }
+                    withStyle(SpanStyle(color = if (Palette.dark) Palette.Ink else Color(0xFF1B2A6B))) { append("Road") }
                     withStyle(SpanStyle(color = Palette.Primary)) { append("Canvas") }
                 },
                 fontSize = 40.sp, fontWeight = FontWeight.Bold,
@@ -135,7 +135,7 @@ fun RegionSheet(
     val visit = trip.visitsAt(Level.SGG)[region.code]
     val owned = trip.stickers.map { it.id }.toSet()
     Column(
-        modifier.width(560.dp).clip(RoundedCornerShape(28.dp)).background(Color.White)
+        modifier.width(560.dp).clip(RoundedCornerShape(28.dp)).background(Palette.Surface)
             .border(1.dp, Palette.Line, RoundedCornerShape(28.dp)).padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
