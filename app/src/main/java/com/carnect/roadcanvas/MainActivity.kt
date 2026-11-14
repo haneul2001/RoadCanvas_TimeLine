@@ -69,6 +69,17 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    /** 자동 기록을 켤 때 위치 권한. */
+    private val autoPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        locationAllowed.value = granted
+        if (granted) {
+            app.setAutoRecord(true)
+            app.tripRecorder?.watch(true)
+        } else {
+            toast("위치 권한이 있어야 자동 기록을 켤 수 있어요")
+        }
+    }
+
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.all { it }) listen() else toast("마이크 권한이 있어야 음성으로 계획을 말할 수 있어요")
     }
@@ -97,6 +108,7 @@ class MainActivity : ComponentActivity() {
                     val plan by ((if (loaded) app.planner?.state else null) ?: emptyPlan).collectAsStateWithLifecycle()
                     val drive by ((if (loaded) app.testDrive?.state else null) ?: emptyDrive).collectAsStateWithLifecycle()
                     val homeDecos by app.decor.items.collectAsStateWithLifecycle()
+                    val autoRecord by app.autoRecord.collectAsStateWithLifecycle()
                     val testDrive = if (loaded) app.testDrive else null
                     val listening by app.stt.listening.collectAsStateWithLifecycle()
                     val partial by app.stt.partial.collectAsStateWithLifecycle()
@@ -183,6 +195,15 @@ class MainActivity : ComponentActivity() {
                             val hereName = here?.let { trip.current[Level.SGG]?.let(TripRecorder::placeName) ?: "현재 위치" }
                             SettingsScreen(
                                 zones, hereName, trip.recording,
+                                autoRecord = autoRecord,
+                                autoEndMin = app.autoEndMs / 60_000,
+                                onAutoRecord = { on ->
+                                    if (on && checkSelfPermission(RoadCanvasApp.FUSED_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                        autoPermission.launch(RoadCanvasApp.FUSED_LOCATION)
+                                    } else {
+                                        app.setAutoRecord(on)
+                                    }
+                                },
                                 onTheme = { t ->
                                     com.carnect.roadcanvas.ui.home.MapColors.theme = t
                                     prefs.edit().putString("map_theme", t.name).apply()

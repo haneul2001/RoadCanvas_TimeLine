@@ -380,6 +380,12 @@ class TripRecorder(
 
     private fun handlePoint(point: TrackPoint) {
         val trip = _state.value.trip?.takeIf { it.active } ?: return
+        // 저장량을 줄이려고 50m 이상 움직였거나 10초가 지난 점만 쓴다(서 있어도 10초마다 남아 머문 곳 판정은 그대로).
+        val before = lastPoint
+        if (before != null && point.timeMs - before.timeMs < MIN_GAP_MS && TripTracker.distanceM(before, point) < MIN_MOVE_M) {
+            _state.update { it.copy(here = point) }
+            return
+        }
         // 기록 제외 구역 안의 위치는 판정도 저장도 하지 않는다.
         if (zoneList.any { it.contains(point) }) {
             Log.d(TAG, "location in excluded zone")
@@ -487,6 +493,10 @@ class TripRecorder(
     }
 
     companion object {
+        /** 기록할 점 사이 최소 거리(m)·최소 시간(ms). 둘 중 하나만 넘어도 기록한다. */
+        const val MIN_MOVE_M = 50.0
+        const val MIN_GAP_MS = 10_000L
+
         /** 여행 요약 문장(기록된 값만 사용). [province]는 (시·도 이름, 다녀온 시·군·구 수, 전체 수). */
         fun summaryText(km: Double, newSgg: Int, stickers: Int, province: Triple<String, Int, Int>?): String = buildString {
             append("이번 여행은 ${if (km >= 10) km.toInt().toString() else "%.1f".format(km)}킬로미터를 달렸어요.")

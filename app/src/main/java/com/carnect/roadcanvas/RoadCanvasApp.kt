@@ -52,6 +52,61 @@ class RoadCanvasApp : Application() {
     var demoData: com.carnect.roadcanvas.sim.DemoData? = null
         private set
 
+    private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
+
+    private val _autoRecord = MutableStateFlow(false)
+    /** 자동 기록(설정에서 동의하고 켬): 기어 D가 되면 여행을 시작하고, 주차한 채 [autoEndMs]가 지나면 끝낸다. */
+    val autoRecord: StateFlow<Boolean> = _autoRecord.asStateFlow()
+
+    /** 자동 기록으로 시작한 여행인지(직접 '여행 시작'한 여행은 자동으로 끝내지 않는다). */
+    private var autoStarted = false
+    private var autoEndJob: kotlinx.coroutines.Job? = null
+
+    /** 주차 후 자동 종료까지 기다리는 시간. 시험하기 쉽게 디버그 빌드는 1분. */
+    val autoEndMs: Long = if (BuildConfig.DEBUG) 60_000L else 30 * 60_000L
+
+    private fun locationGranted() = checkSelfPermission(FUSED_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    fun setAutoRecord(on: Boolean) {
+        _autoRecord.value = on
+        prefs.edit().putBoolean("auto_record", on).apply()
+        Log.i(TAG, "auto record $on")
+        if (on) {
+            if (locationGranted()) TripService.standby(this)
+            onGear(vehicleRepo.state.value)
+        } else {
+            autoEndJob?.cancel()
+            autoStarted = false
+            if (tripRecorder?.state?.value?.recording != true) TripService.shutdown(this)
+        }
+    }
+
+    /** 기어가 바뀔 때: 자동 기록이면 주행 시작에 기록을 켜고, 주차가 길어지면 끈다. */
+    private fun onGear(v: com.carnect.roadcanvas.vehicle.VehicleState) {
+        if (!_autoRecord.value || v.gear == null) return
+        val recorder = tripRecorder ?: return
+        val recording = recorder.state.value.recording
+        if (!v.parked) {
+            autoEndJob?.cancel()
+            autoEndJob = null
+            if (!recording && locationGranted() && testDrive?.state?.value?.running != true) {
+                autoStarted = true
+                Log.i(TAG, "auto record: start (gear ${v.gear})")
+                TripService.start(this)
+            }
+        } else if (recording && autoStarted && autoEndJob == null) {
+            autoEndJob = scope.launch {
+                kotlinx.coroutines.delay(autoEndMs)
+                if (vehicleRepo.state.value.parked && tripRecorder?.state?.value?.recording == true) {
+                    Log.i(TAG, "auto record: end after parking ${autoEndMs / 1000}s")
+                    autoStarted = false
+                    TripService.stop(this@RoadCanvasApp)
+                }
+                autoEndJob = null
+            }
+        }
+    }
+
     /** 지도 꾸미기(낙서·도형·스티커). */
     val decor: com.carnect.roadcanvas.deco.DecorRepo by lazy { com.carnect.roadcanvas.deco.DecorRepo(this) }
 
@@ -93,6 +148,10 @@ class RoadCanvasApp : Application() {
                 }
             }
             launch { recorder.state.collect { s -> s.track.lastOrNull()?.takeIf { s.recording }?.let { plan.onLocation(it.lat, it.lon) } } }
+            // 자동 기록: 저장된 설정을 읽고, 켜져 있으면 대기 서비스를 띄워 기어 변화를 지켜본다.
+            _autoRecord.value = prefs.getBoolean("auto_record", false)
+            if (_autoRecord.value && locationGranted()) TripService.standby(this@RoadCanvasApp)
+            launch { vehicleRepo.state.collect { onGear(it) } }
             _regions.value = indexes
             Log.i(TAG, "regions loaded: " + indexes.values.joinToString { "${it.level.label} ${it.regions.size}" })
         }

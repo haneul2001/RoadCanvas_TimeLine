@@ -486,10 +486,15 @@ fun SettingsScreen(
     onRemoveZone: (ExcludedZone) -> Unit,
     onClearAll: () -> Unit,
     onClose: () -> Unit,
+    /** 자동 기록 켜짐 여부와 켜고 끄기. */
+    autoRecord: Boolean,
+    autoEndMin: Long,
+    onAutoRecord: (Boolean) -> Unit,
     status: @Composable () -> Unit,
 ) {
     var confirmClear by remember { mutableStateOf(false) }
-    Panel("설정 · 개인정보", "위치 기록은 '여행 시작'을 누른 뒤에만, 기기 안에만 저장해요", onClose, { PanelIcon(Icons.Filled.Settings, Palette.Primary) }) {
+    var confirmAuto by remember { mutableStateOf(false) }
+    Panel("설정 · 개인정보", if (autoRecord) "자동 기록이 켜져 있어요 · 위치는 기기 안에만 저장해요" else "위치 기록은 '여행 시작'을 누른 뒤에만, 기기 안에만 저장해요", onClose, { PanelIcon(Icons.Filled.Settings, Palette.Primary) }) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             CardBox(Modifier.weight(1f).fillMaxHeight()) {
                 Text("지도 색", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
@@ -547,6 +552,35 @@ fun SettingsScreen(
                 }
             }
             Column(Modifier.width(820.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                CardBox(Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("자동 기록", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                            Text(
+                                if (autoRecord) "켜짐 · 주행(기어 D)을 시작하면 기록하고, 주차한 채 ${autoEndMin}분이 지나면 끝내요"
+                                else "꺼짐 · '여행 시작'을 눌렀을 때만 기록해요",
+                                fontSize = 17.sp, color = if (autoRecord) Palette.Green else Palette.Muted,
+                            )
+                        }
+                        Box(
+                            Modifier.size(width = 88.dp, height = 48.dp).clip(RoundedCornerShape(24.dp))
+                                .background(if (autoRecord) Palette.Green else Palette.Unvisited)
+                                .clickable { if (autoRecord) onAutoRecord(false) else confirmAuto = true },
+                            contentAlignment = if (autoRecord) Alignment.CenterEnd else Alignment.CenterStart,
+                        ) { Box(Modifier.padding(5.dp).size(38.dp).clip(CircleShape).background(Color.White)) }
+                    }
+                    if (confirmAuto && !autoRecord) {
+                        Text(
+                            "켜면 주행할 때마다 '여행 시작'을 누르지 않아도 달린 길(위치)을 기록해요. 기록은 기기 안에만 저장되고, " +
+                                "기록 제외 구역(집·회사) 안에서는 저장하지 않으며, 언제든 끄거나 지울 수 있어요. 대기 중에는 알림이 떠 있어요.",
+                            fontSize = 17.sp, color = Palette.Ink,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Pill("동의하고 켜기", Color.White, Palette.Green, { onAutoRecord(true); confirmAuto = false })
+                            Pill("취소", Palette.Ink, Palette.Card, { confirmAuto = false })
+                        }
+                    }
+                }
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.Card)) { status() }
                 CardBox(Modifier.fillMaxWidth()) {
                     Text("데이터 출처", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
