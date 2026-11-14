@@ -191,7 +191,7 @@ fun HomeScreen(
             TimelineCard(shown.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
         }
         ActionRow(trip.recording, parked, onToggleTrip, onFeatureTap)
-        Launcher(parked, onFeatureTap)
+        Launcher(parked, onFeatureTap, selected = if (replay != null) Feature.ROUTE_REPLAY else Feature.TIMELINE)
     }
 }
 
@@ -522,7 +522,7 @@ private fun RowScope.ActionButton(icon: ImageVector, label: String, enabled: Boo
 }
 
 @Composable
-internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit) {
+internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit, selected: Feature? = null) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Card)
             .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(horizontal = 20.dp, vertical = 14.dp),
@@ -537,14 +537,13 @@ internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit) {
             Text(" (로드 캔버스)", fontSize = 18.sp, color = Palette.Muted)
         }
         Row(Modifier.fillMaxWidth().height(128.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Feature.entries.forEach { f -> LauncherTile(f, enabled = parked || f == Feature.AUTO_CANVAS, onFeature) }
+            Feature.entries.forEach { f -> LauncherTile(f, enabled = parked || f == Feature.AUTO_CANVAS, onFeature, selected = f == selected) }
         }
     }
 }
 
 @Composable
-private fun RowScope.LauncherTile(f: Feature, enabled: Boolean, onFeature: (Feature) -> Unit) {
-    val selected = f == Feature.TIMELINE
+private fun RowScope.LauncherTile(f: Feature, enabled: Boolean, onFeature: (Feature) -> Unit, selected: Boolean) {
     val icon = when (f) {
         Feature.AUTO_CANVAS -> Icons.Filled.Place
         Feature.CANVAS_QUEST -> Icons.Filled.Search

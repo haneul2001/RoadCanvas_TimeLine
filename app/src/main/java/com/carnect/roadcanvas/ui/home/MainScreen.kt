@@ -144,7 +144,7 @@ fun MainScreen(
             }
             RouteCard(plan, here, parked, onDepart, onFeature, Modifier.width(400.dp).fillMaxHeight())
         }
-        Launcher(parked, onFeature)
+        Launcher(parked, onFeature, selected = Feature.AUTO_CANVAS)
     }
 }
 

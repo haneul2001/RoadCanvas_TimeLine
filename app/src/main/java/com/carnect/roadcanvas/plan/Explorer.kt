@@ -8,9 +8,17 @@ import com.carnect.roadcanvas.trip.TrackPoint
 import com.carnect.roadcanvas.trip.TripTracker
 
 /** 추천 하나. [extraKm]는 우회 추천에서 늘어나는 거리(직선 거리 기준 추정). */
-data class Suggestion(val region: Region, val distanceKm: Double, val landmarks: List<Landmark>, val extraKm: Double? = null) {
+data class Suggestion(
+    val region: Region,
+    val distanceKm: Double,
+    val landmarks: List<Landmark>,
+    val extraKm: Double? = null,
+    /** 그 지역 추천 여행지(추천 코스 순서). */
+    val spots: List<com.carnect.roadcanvas.data.Spot> = emptyList(),
+) {
     val place: Place
-        get() = landmarks.firstOrNull()?.let { Place(it.name, it.lat, it.lon, region.code) }
+        get() = spots.firstOrNull()?.let { Place(it.name, it.lat, it.lon, region.code) }
+            ?: landmarks.firstOrNull()?.let { Place(it.name, it.lat, it.lon, region.code) }
             ?: Place(region.name, region.center.first, region.center.second, region.code)
 }
 
@@ -19,6 +27,16 @@ data class Suggestion(val region: Region, val distanceKm: Double, val landmarks:
  * 관광지 정보는 앱에 넣어 둔 대표 명소만 쓴다(외부 관광 API 없이 동작).
  */
 class Explorer(private val sgg: RegionIndex) {
+
+    /** 시·군·구 추천 여행지(앱 시작 때 넣음). */
+    @Volatile
+    var spots: com.carnect.roadcanvas.data.Spots = com.carnect.roadcanvas.data.Spots.EMPTY
+
+    /** 그 지역을 대표하는 지점: 추천 코스 첫 여행지 → 명소 → 구역 중심. */
+    private fun anchor(r: Region): Pair<Double, Double> =
+        spots.course(r.code).firstOrNull()?.let { it.lat to it.lon }
+            ?: landmarksByRegion[r.code]?.firstOrNull()?.let { it.lat to it.lon }
+            ?: r.center
 
     private val landmarksByRegion: Map<String, List<Landmark>> =
         Landmarks.all.mapNotNull { lm -> sgg.find(lm.lat, lm.lon)?.code?.let { it to lm } }.groupBy({ it.first }, { it.second })
@@ -35,8 +53,8 @@ class Explorer(private val sgg: RegionIndex) {
             .filter { it.code !in visited }
             .filter { province == null || it.province.startsWith(province) }
             .map { r ->
-                val (lat, lon) = r.center
-                Suggestion(r, km(from.first, from.second, lat, lon), landmarksByRegion[r.code].orEmpty())
+                val (lat, lon) = anchor(r)
+                Suggestion(r, km(from.first, from.second, lat, lon), landmarksByRegion[r.code].orEmpty(), spots = spots.course(r.code))
             }
             .sortedBy { it.distanceKm * if (it.landmarks.isNotEmpty()) 0.8 else 1.0 }
             .take(limit)
@@ -56,9 +74,9 @@ class Explorer(private val sgg: RegionIndex) {
         return sgg.regions.asSequence()
             .filter { it.code !in visited && it.code != dest.regionCode }
             .map { r ->
-                val p = landmarksByRegion[r.code]?.firstOrNull()?.let { it.lat to it.lon } ?: r.center
+                val p = anchor(r)
                 val extra = km(from.first, from.second, p.first, p.second) + km(p.first, p.second, dest.lat, dest.lon) - direct
-                Suggestion(r, km(from.first, from.second, p.first, p.second), landmarksByRegion[r.code].orEmpty(), extra)
+                Suggestion(r, km(from.first, from.second, p.first, p.second), landmarksByRegion[r.code].orEmpty(), extra, spots.course(r.code))
             }
             .filter { (it.extraKm ?: 0.0) <= maxExtraKm }
             .sortedBy { (it.extraKm ?: 0.0) * if (it.landmarks.isNotEmpty()) 0.7 else 1.0 }

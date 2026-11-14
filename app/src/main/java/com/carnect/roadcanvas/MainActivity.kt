@@ -184,6 +184,10 @@ class MainActivity : ComponentActivity() {
                                 screen = Screen.HOME
                             },
                             onAdd = { p -> planner!!.add(p) },
+                            onCourse = { name, course ->
+                                planner!!.planCourse(course.map { sp -> com.carnect.roadcanvas.plan.Place(sp.name, sp.lat, sp.lon, sp.sggCode) }, name)
+                                screen = Screen.HOME
+                            },
                             onClose = home,
                         )
                         Screen.DETOUR -> DetourScreen(
@@ -385,7 +389,8 @@ class MainActivity : ComponentActivity() {
         Feature.SMART_DETOUR -> Screen.DETOUR
         Feature.COLLECTION -> Screen.COLLECTION
         Feature.TIMELINE -> if (fromMain) Screen.DASHBOARD else Screen.TRIPS
-        Feature.ROUTE_REPLAY, Feature.AUTO_CANVAS -> Screen.DASHBOARD
+        Feature.ROUTE_REPLAY -> Screen.DASHBOARD
+        Feature.AUTO_CANVAS -> Screen.HOME
     }
 
     private companion object {

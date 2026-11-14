@@ -143,6 +143,7 @@ class RoadCanvasApp : Application() {
             }
             recorder.spots = spots
             plan.spots = spots
+            explorer?.spots = spots
             plan.onPlanComplete = { recorder.award(listOf("complete")) }
             Log.i(TAG, "spots loaded: ${spots.all.size}")
             // 지도 꾸미기에 처음 무언가 붙이면 '추억 저장' 업적

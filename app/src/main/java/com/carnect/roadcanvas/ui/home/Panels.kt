@@ -218,22 +218,23 @@ fun QuestScreen(
     onGo: (Place) -> Unit,
     onAdd: (Place) -> Unit,
     onClose: () -> Unit,
+    onCourse: ((String, List<com.carnect.roadcanvas.data.Spot>) -> Unit)? = null,
 ) {
     val visited = trip.visitsAt(Level.SGG).keys
     val here = trip.track.lastOrNull()?.let { it.lat to it.lon } ?: com.carnect.roadcanvas.plan.TripPlanner.DEFAULT_START
     val currentProvince = trip.current[Level.SIDO]?.name
     val provinces = remember(visited) { explorer.provincesLeft(visited) }
     var province by remember { mutableStateOf<String?>(currentProvince) }
-    val list = remember(visited, province, here) { explorer.quest(visited, here, province, limit = 8) }
+    val list = remember(visited, province, here) { explorer.quest(visited, here, province, limit = 12) }
 
-    Panel("Canvas Quest", "아직 색칠하지 않은 시·군·구를 가까운 순으로 추천해요 (거리는 직선 기준)", onClose, { PanelIcon(Icons.Filled.Search, Palette.Green) }) {
+    Panel("Canvas Quest", "아직 색칠하지 않은 시·군·구와 그곳의 추천 여행지예요 · 가까운 순 (거리는 직선 기준)", onClose, { PanelIcon(Icons.Filled.Search, Palette.Green) }) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             item { FilterChip("가까운 곳 전체", province == null) { province = null } }
             items(provinces) { (name, left, total) ->
                 FilterChip("$name  $left/$total", province == name) { province = name }
             }
         }
-        SuggestionList(list, Modifier.weight(1f), extra = false, onGo = onGo, onAdd = onAdd)
+        SuggestionList(list, Modifier.weight(1f), extra = false, onGo = onGo, onAdd = onAdd, onCourse = onCourse)
     }
 }
 
@@ -245,6 +246,7 @@ private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit) {
     ) { Text(text, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = if (selected) Color.White else Palette.Ink) }
 }
 
+/** 추천 지역 카드: 지역 이름·거리, 추천 여행지 3곳(종류 스티커 그림 + 이름), 바로 안내·코스·추가. */
 @Composable
 private fun SuggestionList(
     list: List<Suggestion>,
@@ -253,37 +255,65 @@ private fun SuggestionList(
     onGo: ((Place) -> Unit)?,
     onAdd: (Place) -> Unit,
     addLabel: String = "계획에 추가",
+    onCourse: ((String, List<com.carnect.roadcanvas.data.Spot>) -> Unit)? = null,
 ) {
     if (list.isEmpty()) {
         Text("조건에 맞는 미방문 지역이 없어요.", fontSize = 22.sp, color = Palette.Muted)
         return
     }
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         items(list) { s ->
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Palette.Card)
-                    .border(1.dp, Palette.Line, RoundedCornerShape(18.dp)).padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Card)
+                    .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(horizontal = 22.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("${s.region.province} ${s.region.name}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-                    Text(
-                        buildString {
-                            if (extra) {
-                                val km = s.extraKm ?: 0.0
-                                append("약 ${(km / DETOUR_KMH * 60).toInt().coerceAtLeast(1)}분 더 (추정, ${km.toInt()} km) · ")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(s.region.name, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                            Spacer(Modifier.width(10.dp))
+                            Text(s.region.province, fontSize = 17.sp, color = Palette.Muted)
+                        }
+                        Text(
+                            buildString {
+                                if (extra) {
+                                    val km = s.extraKm ?: 0.0
+                                    append("약 ${(km / DETOUR_KMH * 60).toInt().coerceAtLeast(1)}분 더 (추정, ${km.toInt()} km) · ")
+                                }
+                                append("직선 ${s.distanceKm.toInt()} km")
+                                if (s.spots.isEmpty() && s.landmarks.isNotEmpty()) append(" · 볼거리 ${s.landmarks.joinToString { it.name }}")
+                            },
+                            fontSize = 17.sp, color = Palette.Muted, maxLines = 1,
+                        )
+                    }
+                    if (onGo != null) {
+                        Pill("바로 안내", Color.White, Palette.Primary, { onGo(s.place) }, size = 20)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    if (onCourse != null && s.spots.isNotEmpty()) {
+                        Pill("코스로 계획", Palette.Green, Palette.GreenSoft, { onCourse(s.region.name, s.spots) }, size = 20)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Pill(addLabel, Palette.Primary, Palette.PrimarySoft, { onAdd(s.place) }, size = 20)
+                }
+                if (s.spots.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        s.spots.take(3).forEachIndexed { i, sp ->
+                            Row(
+                                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(Palette.Background).padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                com.carnect.roadcanvas.sticker.StickerCatalog.byKey(sp.kind)?.let { StickerImage(it, 52.dp) }
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text("${i + 1}. ${sp.name}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 1)
+                                    Text(sp.note, fontSize = 14.sp, color = Palette.Muted, maxLines = 1)
+                                }
                             }
-                            append("직선 ${s.distanceKm.toInt()} km")
-                            if (s.landmarks.isNotEmpty()) append(" · 볼거리 ${s.landmarks.joinToString { it.name }}")
-                        },
-                        fontSize = 18.sp, color = Palette.Muted, maxLines = 1,
-                    )
+                        }
+                    }
                 }
-                if (onGo != null) {
-                    Pill("바로 안내", Color.White, Palette.Primary, { onGo(s.place) })
-                    Spacer(Modifier.width(10.dp))
-                }
-                Pill(addLabel, Palette.Primary, Palette.PrimarySoft, { onAdd(s.place) })
             }
         }
     }
