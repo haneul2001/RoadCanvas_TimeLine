@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.CornerRadius
@@ -106,6 +107,18 @@ private class Projection(size: Size, v: Viewport, private val zoom: Float = 1f, 
     }
 }
 
+/** 지도 밖 버튼으로 확대·축소·원래대로를 보내는 통로. 누를 때마다 [seq]가 늘어난다. */
+class MapZoom {
+    var seq by mutableStateOf(0)
+        private set
+    var factor = 1f
+        private set
+
+    fun zoomIn() { factor = 1.6f; seq++ }
+    fun zoomOut() { factor = 1 / 1.6f; seq++ }
+    fun reset() { factor = 0f; seq++ }
+}
+
 /** 지도 꾸미기 도구. */
 enum class DecoTool(val label: String) {
     MOVE("이동"), PEN("펜"), ERASER("지우개"), RECT("네모"), CIRCLE("동그라미"), ARROW("화살표"), STICKER("스티커")
@@ -172,6 +185,8 @@ fun TripMap(
     onTapGeo: ((Geo) -> Unit)? = null,
     /** 추천 여행지. 지도를 충분히 확대하면 종류 스티커 그림으로 보여 준다. */
     spots: List<com.carnect.roadcanvas.data.Spot> = emptyList(),
+    /** 확대·축소 버튼. */
+    zoomControl: MapZoom? = null,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val bitmaps = remember { StickerBitmaps(ctx) }
@@ -187,6 +202,22 @@ fun TripMap(
     }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
+    var mapSize by remember { mutableStateOf(Size.Zero) }
+    // 버튼으로 확대·축소: 지도 가운데를 중심으로
+    LaunchedEffect(zoomControl?.seq) {
+        val zc = zoomControl ?: return@LaunchedEffect
+        if (zc.seq == 0) return@LaunchedEffect
+        if (zc.factor == 0f) {
+            zoom = 1f
+            pan = Offset.Zero
+            return@LaunchedEffect
+        }
+        val c = Offset(mapSize.width / 2, mapSize.height / 2)
+        val newZoom = (zoom * zc.factor).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        val applied = newZoom / zoom
+        pan = (pan - c) * applied + c
+        zoom = newZoom
+    }
     // 주행을 시작하면 사용자가 옮겨 둔 화면을 이번 여행 범위로 되돌린다.
     LaunchedEffect(interactive) {
         if (!interactive) {
@@ -284,7 +315,7 @@ fun TripMap(
     }
     val pathCache = remember(index) { HashMap<Pair<Size, Viewport>, List<Pair<Region, Path>>>() }
 
-    Canvas(modifier.clipToBounds().then(gestures)) {
+    Canvas(modifier.clipToBounds().then(gestures).onSizeChanged { mapSize = Size(it.width.toFloat(), it.height.toFloat()) }) {
         // 경계 Path는 기본 화면(1배) 기준으로 한 번 만들고, 끌기·확대는 변환으로 처리한다.
         val base = Projection(size, viewport)
         val paths = pathCache.getOrPut(size to viewport) {

@@ -114,6 +114,7 @@ fun MainScreen(
     }
     // 지도에서 누른 시·군·구(추천 여행지 카드)
     var picked by remember { mutableStateOf<com.carnect.roadcanvas.region.Region?>(null) }
+    val zoomControl = remember { MapZoom() }
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
     val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon }
@@ -148,6 +149,7 @@ fun MainScreen(
                         decorations = decorations, focus = here, route = route,
                         onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
                         spots = spots.all,
+                        zoomControl = zoomControl,
                     )
                 }
                 Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -192,6 +194,9 @@ fun MainScreen(
                             onClose = { picked = null },
                             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                         )
+                }
+                if (pl == null && parked) {
+                    ZoomButtons(zoomControl, Modifier.align(Alignment.CenterEnd).padding(14.dp))
                 }
                 if (pl != null && replay != null) {
                     val frame = playFrame ?: return@Box
@@ -352,4 +357,22 @@ private fun BigButton(text: String, color: Color, enabled: Boolean, onClick: () 
             .border(1.dp, if (enabled) color else Palette.Line, RoundedCornerShape(16.dp)).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Text(text, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = if (enabled) color else Palette.Muted) }
+}
+
+/** 지도 확대(+)·축소(−)·원래대로(⟲) 버튼 묶음. */
+@Composable
+private fun ZoomButtons(zoom: MapZoom, modifier: Modifier) {
+    Column(
+        modifier.clip(RoundedCornerShape(22.dp)).background(Palette.Surface.copy(alpha = 0.96f))
+            .border(1.dp, Palette.Line, RoundedCornerShape(22.dp)).padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        listOf("+" to zoom::zoomIn, "−" to zoom::zoomOut, "⟲" to zoom::reset).forEachIndexed { i, (label, action) ->
+            if (i > 0) Box(Modifier.width(36.dp).height(1.dp).background(Palette.Line))
+            Box(
+                Modifier.size(56.dp).clip(CircleShape).clickable { action() },
+                contentAlignment = Alignment.Center,
+            ) { Text(label, fontSize = if (label == "⟲") 24.sp else 32.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
+        }
+    }
 }
