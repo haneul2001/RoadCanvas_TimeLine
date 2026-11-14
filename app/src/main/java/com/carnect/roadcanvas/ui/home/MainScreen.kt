@@ -71,7 +71,14 @@ fun MainScreen(
     /** 위치 권한이 있는지(없으면 '위치 표시 허용' 버튼). */
     locationAllowed: Boolean,
     onAllowLocation: () -> Unit,
+    /** 시·군·구 추천 여행지. */
+    spots: com.carnect.roadcanvas.data.Spots = com.carnect.roadcanvas.data.Spots.EMPTY,
+    onGoSpot: (com.carnect.roadcanvas.data.Spot) -> Unit = {},
+    onCourse: (String, List<com.carnect.roadcanvas.data.Spot>) -> Unit = { _, _ -> },
+    onStats: () -> Unit = {},
 ) {
+    // 지도에서 누른 시·군·구(추천 여행지 카드)
+    var picked by remember { mutableStateOf<com.carnect.roadcanvas.region.Region?>(null) }
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
     val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon }
@@ -87,7 +94,7 @@ fun MainScreen(
         Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 28.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Header(onTestDrive)
+        Header(onTestDrive, onStats = onStats)
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(360.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 VoiceBubble(voiceText, listening, onVoice)
@@ -98,6 +105,8 @@ fun MainScreen(
                     TripMap(
                         index, trip, interactive = parked, Modifier.fillMaxSize(),
                         decorations = decorations, focus = here, route = route,
+                        onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
+                        spots = spots.all,
                     )
                 }
                 Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -117,6 +126,15 @@ fun MainScreen(
                         modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp))
                             .background(Color.White.copy(alpha = 0.92f)).padding(horizontal = 20.dp, vertical = 12.dp),
                     )
+                }
+                picked?.let { r ->
+                        RegionSheet(
+                            r, trip, spots.course(r.code), here,
+                            onGo = { sp -> picked = null; onGoSpot(sp) },
+                            onCourse = { c -> picked = null; onCourse(r.name, c) },
+                            onClose = { picked = null },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        )
                 }
                 if (simLine != null) {
                     SimBar(simLine, simWaiting, onSimDepart, onSimStop, Modifier.align(Alignment.BottomStart).padding(14.dp))

@@ -107,6 +107,10 @@ class RoadCanvasApp : Application() {
         }
     }
 
+    /** 시·군·구별 추천 여행지와 코스. */
+    var spots: com.carnect.roadcanvas.data.Spots = com.carnect.roadcanvas.data.Spots.EMPTY
+        private set
+
     /** 지도 꾸미기(낙서·도형·스티커). */
     val decor: com.carnect.roadcanvas.deco.DecorRepo by lazy { com.carnect.roadcanvas.deco.DecorRepo(this) }
 
@@ -132,6 +136,17 @@ class RoadCanvasApp : Application() {
                 ensureRecording = ::ensureRecording,
             )
             planner = plan
+            spots = withContext(Dispatchers.IO) {
+                runCatching { assets.open("spots.json").use(com.carnect.roadcanvas.data.Spots::load) }
+                    .onFailure { Log.w(TAG, "spots load failed", it) }
+                    .getOrDefault(com.carnect.roadcanvas.data.Spots.EMPTY)
+            }
+            recorder.spots = spots
+            plan.spots = spots
+            plan.onPlanComplete = { recorder.award(listOf("complete")) }
+            Log.i(TAG, "spots loaded: ${spots.all.size}")
+            // 지도 꾸미기에 처음 무언가 붙이면 '추억 저장' 업적
+            launch { decor.items.collect { if (it.isNotEmpty()) recorder.award(listOf("memory")) } }
             val road = withContext(Dispatchers.IO) { assets.open("city_roads.json").use(com.carnect.roadcanvas.sim.RoadBook::load) }
             testDrive = TestDrive(this, recorder, plan, road, ::ensureRecording) { TripService.stop(this@RoadCanvasApp) }
             demoData = com.carnect.roadcanvas.sim.DemoData(recorder, road)

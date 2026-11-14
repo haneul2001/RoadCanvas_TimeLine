@@ -202,6 +202,66 @@ class TripRecorder(
     @Volatile
     var quiet = false
 
+    /** 추천 여행지(앱 시작 때 읽어 넣음). 경로가 근처를 지나간 여행지의 종류 스티커를 준다. */
+    @Volatile
+    var spots: com.carnect.roadcanvas.data.Spots = com.carnect.roadcanvas.data.Spots.EMPTY
+
+    private val _newStickers = kotlinx.coroutines.flow.MutableSharedFlow<List<com.carnect.roadcanvas.sticker.StickerDef>>(extraBufferCapacity = 8)
+    /** 새로 받은 도감 스티커(획득 팝업용). 샘플 기록을 만들 때(quiet)는 알리지 않는다. */
+    val newStickers: kotlinx.coroutines.flow.SharedFlow<List<com.carnect.roadcanvas.sticker.StickerDef>> = _newStickers
+
+    /** 도감 스티커를 준다(이미 있으면 무시). 타임라인에 남기고 음성·팝업으로 알린다. */
+    fun award(keys: Collection<String>, tripId: Long? = _state.value.trip?.id, atMs: Long = eventTime ?: System.currentTimeMillis()) {
+        val owned = stickers.map { it.id }.toSet()
+        val defs = keys.distinct().mapNotNull { com.carnect.roadcanvas.sticker.StickerCatalog.byKey(it) }
+            .filter { it.category.collectible && com.carnect.roadcanvas.sticker.StickerCatalog.PREFIX + it.key !in owned }
+        if (defs.isEmpty()) return
+        val trip = tripId ?: trips.lastOrNull()?.id ?: 0L
+        defs.forEach { d ->
+            stickers += Sticker(com.carnect.roadcanvas.sticker.StickerCatalog.PREFIX + d.key, d.label, atMs, trip)
+            if (_state.value.trip != null) addEvent(EventKind.STICKER, "${d.label} 스티커 획득", "${d.category.label} 스티커")
+        }
+        store.saveStickers(stickers)
+        _state.update { it.copy(stickers = stickers.toList()) }
+        Log.i(TAG, "award ${defs.map { it.key }}")
+        if (!quiet) _newStickers.tryEmit(defs)
+        // 모은 개수로 받는 업적
+        if (stickers.count { it.id.startsWith(com.carnect.roadcanvas.sticker.StickerCatalog.PREFIX) } >= 10) {
+            if ("${com.carnect.roadcanvas.sticker.StickerCatalog.PREFIX}collector" !in stickers.map { it.id }) award(listOf("collector"), trip, atMs)
+        }
+    }
+
+    /** 방문 확정·여행 종료 때 계절·업적 조건을 살핀다. */
+    private fun seasonalAndAchievements(atMs: Long): List<String> {
+        val keys = mutableListOf<String>()
+        val d = Instant.ofEpochMilli(atMs).atZone(ZoneId.systemDefault()).toLocalDate()
+        when (d.monthValue) {
+            3, 4, 5 -> keys += "spring"
+            6, 7, 8 -> keys += "summer"
+            9, 10, 11 -> keys += "autumn"
+            else -> keys += "winter"
+        }
+        if (d.monthValue in 10..11) keys += "silvergrass"
+        if (d.monthValue == 12) keys += "santa"
+        if (d.monthValue == 12 && d.dayOfMonth in 24..25) keys += "christmas"
+        if (d.monthValue == 10 && d.dayOfMonth == 31) keys += "halloween"
+        if (d.monthValue == 1 && d.dayOfMonth == 1) keys += "newyear"
+        val sgg = visits.getValue(Level.SGG)
+        if (sgg.values.count { it.state == VisitState.CONFIRMED } >= 1) keys += "first_visit"
+        if (sgg.values.count { it.state == VisitState.CONFIRMED } >= 10) keys += "explorer"
+        if (sgg.values.any { it.tripIds.size >= 2 }) keys += "revisit"
+        val sido = visits.getValue(Level.SIDO)
+        if (sido.size >= 5) keys += "local_explorer"
+        if (sido.size >= indexes.getValue(Level.SIDO).regions.size) keys += "nation_complete"
+        val totalKm = trips.sumOf { it.distanceM } / 1000
+        if (totalKm >= 1000) keys += "space"
+        if (levelOf(totalKm).first >= 3) keys += "level_up"
+        // 사흘 연속 여행
+        val days = trips.map { Instant.ofEpochMilli(it.startMs).atZone(ZoneId.systemDefault()).toLocalDate() }.toSortedSet()
+        if (days.any { day -> days.contains(day.plusDays(1)) && days.contains(day.plusDays(2)) }) keys += "streak"
+        return keys
+    }
+
     private fun speak(text: String, flush: Boolean) {
         if (!quiet) tts.speak(text, flush)
     }
@@ -253,6 +313,7 @@ class TripRecorder(
                 "총 ${formatKm(trip.distanceM / 1000)} · 새 시·군·구 ${newSgg}곳 · 스티커 ${stickersNow}개" +
                     (progress?.let { " · ${it.first} ${it.second}/${it.third}" } ?: ""),
             )
+            award(seasonalAndAchievements(trip.endMs ?: System.currentTimeMillis()).filter { it in setOf("space", "level_up", "streak", "local_explorer", "nation_complete") }, trip.id)
             // 여행을 마치면 저장된 사실만으로 정해진 문장 틀에 넣어 들려준다.
             speak(summaryText(trip.distanceM / 1000, newSgg, stickersNow, progress), flush = true)
         }
@@ -287,6 +348,9 @@ class TripRecorder(
             .filter { sggIndex.find(it.lat, it.lon)?.code == sggCode }
             .filter { lm -> track.any { TripTracker.distanceM(it, TrackPoint(0, lm.lat, lm.lon)) <= lm.radiusM } }
             .forEach { earned += Sticker("place:${it.id}", it.name, now, record.tripId) }
+        // 추천 여행지: 경로가 근처(1km)를 지난 곳은 장소 스티커, 그 종류(산·바다·사찰…)는 도감 스티커
+        val passed = spots.inRegion(sggCode).filter { sp -> track.any { TripTracker.distanceM(it, TrackPoint(0, sp.lat, sp.lon)) <= com.carnect.roadcanvas.data.Spots.VISIT_RADIUS_M } }
+        passed.forEach { earned += Sticker("spot:${it.id}", it.name, now, record.tripId) }
         val fresh = earned.filter { s -> stickers.none { it.id == s.id } }
         if (fresh.isNotEmpty()) {
             stickers += fresh
@@ -299,6 +363,7 @@ class TripRecorder(
         }
         Log.i(TAG, "confirm $sggCode stickers=${fresh.map { it.id }}")
         _state.update { it.copy(visits = snapshotVisits(), stickers = stickers.toList()) }
+        award(passed.map { it.kind } + listOfNotNull(regionStickerKey(region)) + seasonalAndAchievements(now), record.tripId, now)
     }
 
     private fun markConfirmed(level: Level, code: String) {
@@ -493,6 +558,47 @@ class TripRecorder(
     }
 
     companion object {
+        /** 여행 레벨: 누적 거리(km) 기준. (레벨, 다음 레벨까지 남은 km, 이번 레벨 진행 0~1) */
+        private val LEVEL_KM = listOf(0.0, 100.0, 300.0, 600.0, 1000.0, 1500.0, 2500.0, 4000.0, 6000.0, 10000.0)
+
+        fun levelOf(km: Double): Pair<Int, Double> {
+            val lv = LEVEL_KM.indexOfLast { km >= it } + 1
+            val next = LEVEL_KM.getOrNull(lv)
+            return lv to (next?.minus(km) ?: 0.0)
+        }
+
+        fun levelProgress(km: Double): Float {
+            val lv = LEVEL_KM.indexOfLast { km >= it }
+            val from = LEVEL_KM[lv]
+            val to = LEVEL_KM.getOrNull(lv + 1) ?: return 1f
+            return ((km - from) / (to - from)).toFloat()
+        }
+
+        /** 시·도 지역 스티커 키. 전남광주통합특별시는 옛 광주시 구(동·서·남·북·광산구)면 광주, 아니면 전남. */
+        fun regionStickerKey(sgg: Region): String? {
+            val p = sgg.province
+            return when {
+                p.startsWith("서울") -> "region_seoul"
+                p.startsWith("부산") -> "region_busan"
+                p.startsWith("대구") -> "region_daegu"
+                p.startsWith("인천") -> "region_incheon"
+                p.startsWith("대전") -> "region_daejeon"
+                p.startsWith("울산") -> "region_ulsan"
+                p.startsWith("세종") -> "region_sejong"
+                p.startsWith("경기") -> "region_gyeonggi"
+                p.startsWith("강원") -> "region_gangwon"
+                p.startsWith("충청북") || p.startsWith("충북") -> "region_chungbuk"
+                p.startsWith("충청남") || p.startsWith("충남") -> "region_chungnam"
+                p.startsWith("전북") || p.startsWith("전라북") -> "region_jeonbuk"
+                p.contains("광주") && sgg.name in setOf("동구", "서구", "남구", "북구", "광산구") -> "region_gwangju"
+                p.contains("광주") || p.startsWith("전라남") || p.startsWith("전남") -> "region_jeonnam"
+                p.startsWith("경상북") || p.startsWith("경북") -> "region_gyeongbuk"
+                p.startsWith("경상남") || p.startsWith("경남") -> "region_gyeongnam"
+                p.startsWith("제주") -> "region_jeju"
+                else -> null
+            }
+        }
+
         /** 기록할 점 사이 최소 거리(m)·최소 시간(ms). 둘 중 하나만 넘어도 기록한다. */
         const val MIN_MOVE_M = 50.0
         const val MIN_GAP_MS = 10_000L

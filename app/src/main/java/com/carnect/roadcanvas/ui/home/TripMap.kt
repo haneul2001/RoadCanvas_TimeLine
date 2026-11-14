@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.asImageBitmap
 import com.carnect.roadcanvas.data.Landmarks
 import com.carnect.roadcanvas.region.Level
 import com.carnect.roadcanvas.region.Region
@@ -167,7 +168,13 @@ fun TripMap(
     focus: Geo? = null,
     /** 등록된 경로(들를 곳 이름, 좌표). 지금 위치부터 점선으로 잇고 번호를 단다. */
     route: List<Pair<String, Geo>> = emptyList(),
+    /** 정차 중 지도를 한 번 누르면 그 자리의 좌표(구역 정보 보기). */
+    onTapGeo: ((Geo) -> Unit)? = null,
+    /** 추천 여행지. 지도를 충분히 확대하면 종류 스티커 그림으로 보여 준다. */
+    spots: List<com.carnect.roadcanvas.data.Spot> = emptyList(),
 ) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val bitmaps = remember { StickerBitmaps(ctx) }
     val tripRegions = trip.trip?.let { t -> trip.visitsAt(index.level).filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
     val shown = frame ?: trip
     val visits = shown.visitsAt(index.level)
@@ -248,11 +255,17 @@ fun TripMap(
                     zoom = newZoom
                 }
             }
-            .pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = {
-                    zoom = 1f
-                    pan = Offset.Zero
-                })
+            .pointerInput(onTapGeo != null) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        zoom = 1f
+                        pan = Offset.Zero
+                    },
+                    onTap = { o ->
+                        val tap = onTapGeo ?: return@detectTapGestures
+                        tap(Projection(Size(size.width.toFloat(), size.height.toFloat()), currentViewport, zoom, pan).geo(o))
+                    },
+                )
             }
     } else {
         Modifier
@@ -304,8 +317,11 @@ fun TripMap(
         drawProvinceLabels(projection, provinceCenters.values, viewport, zoom)
         drawTrack(projection, shown.track)
         drawStickerStars(projection, shown)
+        // 확대했을 때만 추천 여행지 그림(전국 보기에서는 너무 빽빽함)
+        val spanDeg = (viewport.maxLon - viewport.minLon) / zoom
+        if (spanDeg < 0.7) drawSpots(projection, spots, bitmaps, names = spanDeg < 0.4)
         if (focus == null) drawPins(projection, shown, index.level)
-        drawDecorations(projection, decorations + listOfNotNull(draft))
+        drawDecorations(projection, decorations + listOfNotNull(draft), bitmaps)
         if (route.isNotEmpty()) drawRoute(projection, focus, route)
         focus?.let { drawHere(projection, it) }
     }
@@ -369,8 +385,43 @@ private fun segDist(p: Offset, a: Offset, b: Offset): Float {
     return (p - (a + ab * t)).getDistance()
 }
 
+/** 스티커 그림(리소스) 캐시. 지도에 붙인 스티커·추천 여행지 표시에 쓴다. */
+class StickerBitmaps(private val context: android.content.Context) {
+    private val cache = HashMap<String, androidx.compose.ui.graphics.ImageBitmap?>()
+
+    fun get(key: String): androidx.compose.ui.graphics.ImageBitmap? = cache.getOrPut(key) {
+        val def = com.carnect.roadcanvas.sticker.StickerCatalog.byKey(key) ?: return@getOrPut null
+        android.graphics.BitmapFactory.decodeResource(context.resources, def.res)?.let {
+            android.graphics.Bitmap.createScaledBitmap(it, 96, 96, true).asImageBitmap()
+        }
+    }
+}
+
+private fun DrawScope.drawSticker(img: androidx.compose.ui.graphics.ImageBitmap, c: Offset, size: Int) {
+    drawImage(
+        img,
+        srcOffset = androidx.compose.ui.unit.IntOffset.Zero,
+        srcSize = androidx.compose.ui.unit.IntSize(img.width, img.height),
+        dstOffset = androidx.compose.ui.unit.IntOffset((c.x - size / 2).toInt(), (c.y - size / 2).toInt()),
+        dstSize = androidx.compose.ui.unit.IntSize(size, size),
+    )
+}
+
+private fun DrawScope.drawSpots(p: Projection, spots: List<com.carnect.roadcanvas.data.Spot>, bitmaps: StickerBitmaps, names: Boolean) {
+    val name = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 20f; color = Palette.Ink.toArgb(); typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+    spots.forEach { sp ->
+        val c = Offset(p.x(sp.lon), p.y(sp.lat))
+        if (c.x < -40 || c.y < -40 || c.x > size.width + 40 || c.y > size.height + 40) return@forEach
+        bitmaps.get(sp.kind)?.let { drawSticker(it, c, 52) } ?: drawCircle(Palette.Amber, 10f, c)
+        if (!names) return@forEach
+        val w = name.measureText(sp.name) + 14f
+        drawRoundRect(Color.White.copy(alpha = 0.85f), Offset(c.x - w / 2, c.y + 26f), Size(w, 26f), CornerRadius(13f))
+        drawContext.canvas.nativeCanvas.drawText(sp.name, c.x, c.y + 45f, name)
+    }
+}
+
 /** 낙서·도형·스티커. 굵기와 크기는 확대와 상관없이 화면 기준. */
-private fun DrawScope.drawDecorations(p: Projection, decos: List<Decoration>) {
+private fun DrawScope.drawDecorations(p: Projection, decos: List<Decoration>, bitmaps: StickerBitmaps) {
     val emojiPaint = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 40f }
     val labelPaint = Paint().apply {
         isAntiAlias = true
@@ -410,6 +461,16 @@ private fun DrawScope.drawDecorations(p: Projection, decos: List<Decoration>) {
             }
             is Decoration.Sticker -> {
                 val c = p.at(d.at)
+                // 그림 스티커("img:<종류>")는 그림 그대로 붙인다
+                if (d.emoji.startsWith("img:")) {
+                    bitmaps.get(d.emoji.removePrefix("img:"))?.let { drawSticker(it, c, 84) }
+                    if (d.text.isNotBlank()) {
+                        val w = labelPaint.measureText(d.text) + 26f
+                        drawRoundRect(Color(d.color), Offset(c.x - w / 2, c.y + 40f), Size(w, 34f), CornerRadius(17f))
+                        drawContext.canvas.nativeCanvas.drawText(d.text, c.x, c.y + 64f, labelPaint)
+                    }
+                    return@forEach
+                }
                 drawCircle(Color.White, radius = 36f, center = c)
                 drawCircle(Color(d.color), radius = 36f, center = c, style = Stroke(width = 6f))
                 drawContext.canvas.nativeCanvas.drawText(d.emoji, c.x, c.y + 14f, emojiPaint)

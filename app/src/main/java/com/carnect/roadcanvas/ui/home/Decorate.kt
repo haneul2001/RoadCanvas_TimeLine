@@ -145,7 +145,7 @@ fun DecorateScreen(
                         DecoTool.PEN -> "손가락으로 그어서 낙서해요"
                         DecoTool.ERASER -> "지우고 싶은 낙서·도형·스티커를 문질러요"
                         DecoTool.RECT, DecoTool.CIRCLE, DecoTool.ARROW -> "끌어서 ${tool.label}를 그려요"
-                        DecoTool.STICKER -> if (sticker == null) "오른쪽에서 붙일 스티커를 골라요" else "붙일 곳을 눌러요: ${sticker!!.first} ${sticker!!.second}"
+                        DecoTool.STICKER -> if (sticker == null) "오른쪽에서 붙일 스티커를 골라요" else "붙일 곳을 눌러요: " + sticker!!.let { st -> if (st.first.startsWith("img:")) com.carnect.roadcanvas.sticker.StickerCatalog.byKey(st.first.removePrefix("img:"))?.label.orEmpty() else "${st.first} ${st.second}" }
                     },
                     fontSize = 17.sp, color = Palette.Ink,
                     modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).clip(RoundedCornerShape(14.dp))
@@ -274,9 +274,21 @@ private fun StickerPanel(
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
-        item { Spacer(Modifier.height(6.dp)); Text("업적 스티커 ${earned.size}개", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
+        // 그림 스티커: 모은 도감 스티커 + 늘 쓸 수 있는 날씨·감정 스티커
+        val ownedKeys = earned.mapNotNull { com.carnect.roadcanvas.sticker.StickerCatalog.ofStickerId(it.id)?.key }.toSet()
+        val pictures = com.carnect.roadcanvas.sticker.StickerCatalog.all.filter { !it.category.collectible || it.key in ownedKeys }
+            .map { Triple("img:${it.key}", "", 0xFF1E88E5.toInt()) }
+        item { Spacer(Modifier.height(6.dp)); Text("그림 스티커 ${pictures.size}개", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
+        item { Text("모은 도감 스티커와 날씨·감정 스티커를 붙일 수 있어요.", fontSize = 15.sp, color = Palette.Muted) }
+        items(pictures.chunked(3)) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { d -> StickerChip(d, selected == d, { onPick(d) }, Modifier.weight(1f)) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        item { Spacer(Modifier.height(6.dp)); Text("방문 스티커 ${earned.size}개", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
         if (earned.isEmpty()) item { Text("방문을 확정하면 스티커를 받아요.", fontSize = 16.sp, color = Palette.Muted) }
-        items(earned.chunked(2)) { row ->
+        items(earned.filter { com.carnect.roadcanvas.sticker.StickerCatalog.ofStickerId(it.id) == null }.chunked(2)) { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { s -> val d = s.asDeco(); StickerChip(d, selected == d, { onPick(d) }, Modifier.weight(1f)) }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -293,7 +305,8 @@ private fun StickerChip(s: Triple<String, String, Int>, selected: Boolean, onCli
             .clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(s.first, fontSize = 30.sp)
+        val def = if (s.first.startsWith("img:")) com.carnect.roadcanvas.sticker.StickerCatalog.byKey(s.first.removePrefix("img:")) else null
+        if (def != null) StickerImage(def, 54.dp) else Text(s.first, fontSize = 30.sp)
         if (s.second.isNotBlank()) Text(s.second, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 1, textAlign = TextAlign.Center)
     }
 }

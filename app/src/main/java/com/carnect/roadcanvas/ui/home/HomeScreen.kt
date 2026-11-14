@@ -258,27 +258,22 @@ internal fun SimBar(line: String, waiting: Boolean, onDepart: () -> Unit, onStop
 }
 
 @Composable
-internal fun Header(onTestDrive: () -> Unit, onBack: (() -> Unit)? = null) {
+internal fun Header(onTestDrive: () -> Unit, onBack: (() -> Unit)? = null, onStats: (() -> Unit)? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        AppIcon(Modifier.size(64.dp))
-        Spacer(Modifier.width(18.dp))
-        Column {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(color = Palette.Ink)) { append("Road Canvas : ") }
-                    withStyle(SpanStyle(color = Palette.Primary)) { append("TimeLine") }
-                },
-                fontSize = 40.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Text("차량 이동 데이터를 여행 기록과 다음 계획으로 연결", fontSize = 20.sp, color = Palette.Muted)
-        }
+        BrandTitle()
         Spacer(Modifier.weight(1f))
         if (onBack != null) {
             Box(
                 Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.Card).border(1.dp, Palette.Line, RoundedCornerShape(16.dp))
                     .clickable(onClick = onBack).padding(horizontal = 20.dp, vertical = 12.dp),
             ) { Text("← 메인", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Primary) }
+            Spacer(Modifier.width(12.dp))
+        }
+        if (onStats != null) {
+            Box(
+                Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.Card).border(1.dp, Palette.Line, RoundedCornerShape(16.dp))
+                    .clickable(onClick = onStats).padding(horizontal = 20.dp, vertical = 12.dp),
+            ) { Text("📊  여행 통계", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Primary) }
             Spacer(Modifier.width(12.dp))
         }
         Row(
@@ -538,7 +533,7 @@ internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
             AppIcon(Modifier.size(34.dp))
             Spacer(Modifier.width(10.dp))
-            Text("Road Canvas", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+            Text("RoadCanvas", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
             Text(" (로드 캔버스)", fontSize = 18.sp, color = Palette.Muted)
         }
         Row(Modifier.fillMaxWidth().height(128.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

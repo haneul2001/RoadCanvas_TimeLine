@@ -27,9 +27,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -68,18 +71,52 @@ private fun missions(indexes: Map<Level, RegionIndex>, trip: TripState): List<Mi
     )
 }
 
+/** 스티커 그림. [locked]면 흐리게(아직 못 받음). */
+@Composable
+fun StickerImage(def: com.carnect.roadcanvas.sticker.StickerDef, size: androidx.compose.ui.unit.Dp, locked: Boolean = false) {
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(def.res),
+        contentDescription = def.label,
+        modifier = Modifier.size(size),
+        alpha = if (locked) 0.28f else 1f,
+        colorFilter = if (locked) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null,
+    )
+}
+
+/** 도감 탭: 전체 + 모으는 분류들 + 꾸미기용(날씨·감정). */
+private typealias DexFilter = (com.carnect.roadcanvas.sticker.StickerDef) -> Boolean
+
+private val DEX_TABS: List<Pair<String, DexFilter>> = buildList {
+    add("전체" to { d: com.carnect.roadcanvas.sticker.StickerDef -> d.category.collectible })
+    com.carnect.roadcanvas.sticker.StickerCategory.entries.filter { it.collectible }.forEach { c ->
+        add(c.label to { d: com.carnect.roadcanvas.sticker.StickerDef -> d.category == c })
+    }
+    add("꾸미기용" to { d: com.carnect.roadcanvas.sticker.StickerDef -> !d.category.collectible })
+}
+
+/**
+ * 스티커 도감. 모으는 스티커는 실제 방문 기록으로만 얻고(못 받은 것은 흐리게, 누르면 얻는 방법),
+ * 날씨·감정 스티커는 지도 꾸미기에서 늘 쓸 수 있다. 오른쪽은 지역 탐험 미션.
+ */
 @Composable
 fun CollectionScreen(indexes: Map<Level, RegionIndex>, trip: TripState, onClose: () -> Unit) {
+    val owned = trip.stickers.mapNotNull { com.carnect.roadcanvas.sticker.StickerCatalog.ofStickerId(it.id)?.key }.toSet()
+    val collectible = com.carnect.roadcanvas.sticker.StickerCatalog.collectible
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    var picked by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<com.carnect.roadcanvas.sticker.StickerDef?>(null) }
+    val shown = com.carnect.roadcanvas.sticker.StickerCatalog.all.filter(DEX_TABS[tab].second)
+    val places = trip.stickers.filter { it.id.startsWith("spot:") || it.isPlace }
+
     Column(
-        Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 36.dp, vertical = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        Modifier.fillMaxSize().background(Palette.Background).padding(horizontal = 36.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Star, null, tint = Palette.Amber, modifier = Modifier.size(44.dp))
-            Spacer(Modifier.width(14.dp))
+            Text("👑", fontSize = 38.sp)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Collection", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-                Text("방문을 확정한 지역과 근처를 지난 명소의 스티커, 지역 탐험 미션", fontSize = 20.sp, color = Palette.Muted)
+                Text("스티커 도감", fontSize = 38.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Text("다양한 스티커로 나만의 여행 지도를 완성해 보세요", fontSize = 19.sp, color = Palette.Muted)
             }
             Box(
                 Modifier.clip(RoundedCornerShape(16.dp)).background(Palette.Card).border(1.dp, Palette.Line, RoundedCornerShape(16.dp))
@@ -88,43 +125,109 @@ fun CollectionScreen(indexes: Map<Level, RegionIndex>, trip: TripState, onClose:
         }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             Column(
-                Modifier.weight(1.4f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Card).padding(24.dp),
+                Modifier.weight(1.5f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).background(Palette.Card).padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text("스티커 ${trip.stickers.size}개", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-                Spacer(Modifier.height(16.dp))
-                if (trip.stickers.isEmpty()) {
-                    Text("머문 곳에서 방문을 확정하면 스티커가 생겨요.", fontSize = 20.sp, color = Palette.Muted)
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(DEX_TABS.size) { i ->
+                        val sel = i == tab
+                        Box(
+                            Modifier.clip(RoundedCornerShape(22.dp)).background(if (sel) Palette.Primary else Palette.Background)
+                                .clickable { tab = i; picked = null }.padding(horizontal = 20.dp, vertical = 10.dp),
+                        ) { Text(DEX_TABS[i].first, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = if (sel) Color.White else Palette.Ink) }
+                    }
                 }
-                LazyVerticalGrid(columns = GridCells.Adaptive(170.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(trip.stickers.sortedByDescending { it.timeMs }) { s -> StickerTile(s.title, s.isPlace) }
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(118.dp), modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(shown) { d ->
+                        val have = !d.category.collectible || d.key in owned
+                        Column(
+                            Modifier.clip(RoundedCornerShape(18.dp)).background(if (picked == d) Palette.PrimarySoft else Palette.Background)
+                                .clickable { picked = d }.padding(vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            StickerImage(d, 76.dp, locked = !have)
+                            Text(if (have) d.label else "?", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (have) Palette.Ink else Palette.Muted, maxLines = 1)
+                        }
+                    }
+                }
+                // 고른 스티커 설명, 아래는 보유 수
+                picked?.let { d ->
+                    val have = !d.category.collectible || d.key in owned
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.PrimarySoft).padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        StickerImage(d, 56.dp, locked = !have)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("${d.label} · ${d.category.label}", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                            Text(if (have && d.category.collectible) "받았어요!" else d.how, fontSize = 16.sp, color = Palette.Muted)
+                        }
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Background).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🏆", fontSize = 24.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("보유 스티커 수", fontSize = 16.sp, color = Palette.Muted)
+                        LinearProgressIndicator(
+                            progress = { owned.size.toFloat() / collectible.size },
+                            color = Palette.Amber, trackColor = Palette.Line,
+                            modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                        )
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Text("${owned.size} / ${collectible.size}", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 }
             }
             Column(
-                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Card).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).background(Palette.Card).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text("지역 탐험 미션", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 missions(indexes, trip).forEach { m -> MissionRow(m) }
+                Text("다녀온 여행지 ${places.size}곳", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Text(places.sortedByDescending { it.timeMs }.take(12).joinToString(" · ") { it.title }.ifEmpty { "추천 여행지 근처를 지나며 방문이 확정되면 쌓여요." }, fontSize = 16.sp, color = Palette.Muted)
             }
         }
     }
 }
 
+/** 새 스티커를 받았을 때 띄우는 팝업. */
 @Composable
-private fun StickerTile(title: String, place: Boolean) {
-    val accent = if (place) Palette.Amber else Palette.Teal
-    Column(
-        Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(20.dp)).background(if (place) Palette.AmberSoft else Palette.TealSoft)
-            .border(2.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(20.dp)).padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(Modifier.size(72.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-            Icon(if (place) Icons.Filled.Star else Icons.Filled.Place, null, tint = accent, modifier = Modifier.size(44.dp))
+fun StickerAwardDialog(defs: List<com.carnect.roadcanvas.sticker.StickerDef>, onDismiss: () -> Unit) {
+    val first = defs.first()
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.width(620.dp).clip(RoundedCornerShape(32.dp)).background(Brush.verticalGradient(listOf(Color(0xFFEAF3FF), Color.White)))
+                .clickable(enabled = false) {}.padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFFFFE08A)).padding(horizontal = 28.dp, vertical = 10.dp)) {
+                Text("새로운 스티커를 획득했어요!", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7A4B00))
+            }
+            StickerImage(first, 200.dp)
+            Text(if (first.category == com.carnect.roadcanvas.sticker.StickerCategory.ACHIEVE) first.label else "${first.label} 스티커", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+            Text("${first.category.label} 스티커 · 스티커 도감에 담았어요", fontSize = 18.sp, color = Palette.Muted, textAlign = TextAlign.Center)
+            if (defs.size > 1) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    defs.drop(1).take(6).forEach { StickerImage(it, 56.dp) }
+                    if (defs.size > 7) Text("+${defs.size - 7}", fontSize = 20.sp, color = Palette.Muted)
+                }
+                Text("함께 받은 스티커 ${defs.size - 1}개", fontSize = 16.sp, color = Palette.Muted)
+            }
+            Box(
+                Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp)).background(Palette.Primary).clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center,
+            ) { Text("확인하기  ›", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White) }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 1, textAlign = TextAlign.Center)
-        Text(if (place) "장소 스티커" else "지역 스티커", fontSize = 14.sp, color = Palette.Muted)
     }
 }
 
@@ -144,30 +247,5 @@ private fun MissionRow(m: Mission) {
             trackColor = Palette.Line,
             modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
         )
-    }
-}
-
-/** 지도 위, 머문 곳의 방문 확인을 묻는 카드. 정차 중에만 보인다. */
-@Composable
-fun ConfirmStayCard(regionName: String, onConfirm: () -> Unit, onLater: () -> Unit, modifier: Modifier) {
-    Row(
-        modifier.clip(RoundedCornerShape(18.dp)).background(Color.White).border(2.dp, Palette.Amber, RoundedCornerShape(18.dp))
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Filled.Star, null, tint = Palette.Amber, modifier = Modifier.size(32.dp))
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text("${regionName}에 머물렀어요", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-            Text("방문으로 기록할까요?", fontSize = 16.sp, color = Palette.Muted)
-        }
-        Spacer(Modifier.width(18.dp))
-        Box(
-            Modifier.clip(RoundedCornerShape(12.dp)).background(Palette.Amber).clickable(onClick = onConfirm).padding(horizontal = 18.dp, vertical = 12.dp),
-        ) { Text("방문 확정", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White) }
-        Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onLater).padding(horizontal = 14.dp, vertical = 12.dp),
-        ) { Text("나중에", fontSize = 18.sp, color = Palette.Muted) }
     }
 }

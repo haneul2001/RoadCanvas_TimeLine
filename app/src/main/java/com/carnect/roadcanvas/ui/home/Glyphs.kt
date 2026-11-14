@@ -15,28 +15,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 /** 앱 아이콘: 둥근 사각형 안의 산과 길. */
 @Composable
 fun AppIcon(modifier: Modifier) {
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        drawRoundRect(
-            Brush.linearGradient(listOf(Color(0xFF2BB5A4), Color(0xFF1F6FEB)), Offset.Zero, Offset(w, h)),
-            cornerRadius = CornerRadius(w * 0.24f),
-        )
-        val mountain = Path().apply {
-            moveTo(w * 0.14f, h * 0.74f)
-            lineTo(w * 0.42f, h * 0.30f)
-            lineTo(w * 0.56f, h * 0.50f)
-            lineTo(w * 0.66f, h * 0.38f)
-            lineTo(w * 0.88f, h * 0.74f)
-            close()
-        }
-        drawPath(mountain, Color.White)
-        val road = Path().apply {
-            moveTo(w * 0.42f, h * 0.90f)
-            quadraticTo(w * 0.62f, h * 0.78f, w * 0.48f, h * 0.68f)
-        }
-        drawPath(road, Color(0xFF1F6FEB), style = Stroke(width = w * 0.07f, cap = StrokeCap.Round))
-    }
+    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.carnect.roadcanvas.R.drawable.logo_roadcanvas), "RoadCanvas", modifier)
 }
 
 /** 마이크 모양(기본 아이콘 세트에 없어 직접 그린다). */

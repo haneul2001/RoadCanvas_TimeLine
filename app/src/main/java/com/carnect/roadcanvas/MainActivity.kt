@@ -149,7 +149,23 @@ class MainActivity : ComponentActivity() {
                                 null
                             }
                     val simWaiting = drive.running && plan.target != null && plan.phase != PlanPhase.GUIDING
+                    // 시작 화면(앱을 켤 때 한 번)
+                    var started by rememberSaveable { mutableStateOf(false) }
+                    // 새로 받은 스티커 팝업
+                    var award by remember { mutableStateOf<List<com.carnect.roadcanvas.sticker.StickerDef>>(emptyList()) }
+                    androidx.compose.runtime.LaunchedEffect(recorder) {
+                        recorder?.newStickers?.collect { award = award + it }
+                    }
+                    val toPlace = { sp: com.carnect.roadcanvas.data.Spot -> com.carnect.roadcanvas.plan.Place(sp.name, sp.lat, sp.lon, sp.sggCode) }
+                    if (!started) {
+                        com.carnect.roadcanvas.ui.home.StartScreen(onStart = { started = true })
+                        return@Surface
+                    }
                     when (current) {
+                        Screen.STATS -> {
+                            val trips by recorder!!.tripList.collectAsStateWithLifecycle()
+                            com.carnect.roadcanvas.ui.home.StatsScreen(indexes!!, trip, trips, onClose = home)
+                        }
                         Screen.PLANNER -> PlannerScreen(
                             plan, listening, partial, sttStatus,
                             onMic = { if (listening) app.stt.cancel() else startListening() },
@@ -314,7 +330,19 @@ class MainActivity : ComponentActivity() {
                             onDecorate = { screen = Screen.DECORATE },
                             locationAllowed = locationAllowed.value,
                             onAllowLocation = { watchPermission.launch(RoadCanvasApp.FUSED_LOCATION) },
+                            spots = app.spots,
+                            onGoSpot = { sp ->
+                                planner?.clear()
+                                planner?.add(toPlace(sp))
+                                planner?.depart()
+                            },
+                            onCourse = { name, course -> planner?.planCourse(course.map(toPlace), name) },
+                            onStats = { screen = Screen.STATS },
                         )
+                    }
+                    // 정차 중에만 팝업(주행 중엔 음성 안내만)
+                    if (award.isNotEmpty() && parked) {
+                        com.carnect.roadcanvas.ui.home.StickerAwardDialog(award, onDismiss = { award = emptyList() })
                     }
                 }
             }
@@ -347,7 +375,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 
-    private enum class Screen { HOME, DASHBOARD, COLLECTION, PLANNER, QUEST, DETOUR, TRIPS, SETTINGS, TEST, DECORATE }
+    private enum class Screen { HOME, STATS, DASHBOARD, COLLECTION, PLANNER, QUEST, DETOUR, TRIPS, SETTINGS, TEST, DECORATE }
 
     /** 런처 타일 → 화면. 메인의 TimeLine은 여행 대시보드, 대시보드의 '기록 보기'는 여행 목록. */
     private fun featureScreen(f: Feature, fromMain: Boolean): Screen = when (f) {

@@ -145,7 +145,29 @@ class TripPlanner(
     }
 
     /** 앱에 담긴 대표 명소로 짧게 소개한다(외부 관광 정보 없이, 있는 사실만). */
+    /** 추천 여행지(앱 시작 때 넣음). 명소 질문에 답할 때 쓴다. */
+    @Volatile
+    var spots: com.carnect.roadcanvas.data.Spots = com.carnect.roadcanvas.data.Spots.EMPTY
+
+    /** 계획한 곳을 모두 들렀을 때(완주 업적). */
+    var onPlanComplete: (() -> Unit)? = null
+
+    /** 추천 코스처럼 순서가 정해진 여러 곳을 한 번에 계획으로 넣는다(순서는 그대로). */
+    fun planCourse(stops: List<Place>, title: String) {
+        if (stops.isEmpty()) return
+        if (_state.value.phase == PlanPhase.GUIDING) navi.cancelRoute()
+        _state.update { PlanState(stops = stops, phase = PlanPhase.PROPOSED, heard = it.heard) }
+        say("$title 코스로 ${stops.joinToString(", ") { it.name }} 순서로 안내할게요. 출발이라고 말씀해 주세요.")
+    }
+
     private fun brief(place: Place): String {
+        // 그 지역 추천 여행지가 있으면 그것으로, 없으면 근처(25km) 명소로
+        val inRegion = place.regionCode?.let { spots.course(it) }.orEmpty()
+        val nearSpots = inRegion.ifEmpty { spots.near(place.lat, place.lon, BRIEF_KM).take(3) }
+        if (nearSpots.isNotEmpty()) {
+            return "${place.name} 추천 여행지를 알려 드릴게요. " +
+                nearSpots.take(3).joinToString(" ") { if (it.note.isNotEmpty()) "${it.name.eun} ${it.note.ieyo}" else "${it.name.iga} 있어요." }
+        }
         val near = com.carnect.roadcanvas.data.Landmarks.all
             .map { it to place.distanceKmTo(it.lat, it.lon) }
             .filter { it.second <= BRIEF_KM }
@@ -202,6 +224,7 @@ class TripPlanner(
         if (last) {
             _state.update { it.copy(phase = PlanPhase.DONE, index = it.stops.size) }
             say("${target.name}에 도착했어요. 계획한 곳을 모두 들렀어요.")
+            onPlanComplete?.invoke()
         } else {
             _state.update { it.copy(phase = PlanPhase.ARRIVED) }
             advance(arrivedAt = target)
@@ -225,6 +248,7 @@ class TripPlanner(
     private fun finish() {
         _state.update { it.copy(phase = PlanPhase.DONE) }
         say("계획한 곳을 모두 들렀어요.")
+        onPlanComplete?.invoke()
     }
 
     private fun say(text: String) {
