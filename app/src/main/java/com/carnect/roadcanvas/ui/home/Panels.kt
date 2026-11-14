@@ -547,7 +547,7 @@ fun SettingsScreen(
                         ) {
                             // 견본: 그 테마의 첫 다섯 색
                             (0..2).forEach { i ->
-                                Box(Modifier.size(14.dp).clip(CircleShape).background(rainbow(i, com.carnect.roadcanvas.trip.VisitState.STAY_CANDIDATE, t)))
+                                Box(Modifier.size(14.dp).clip(CircleShape).background(countColor(i * 2 + 1, t)))
                             }
                             Spacer(Modifier.width(8.dp))
                             Text(t.label, fontSize = 18.sp, color = Palette.Ink)
@@ -679,7 +679,7 @@ fun TestDriveScreen(
                 )
                 Text("2. 출발 위치", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FilterChip("서울시청에서", fromSeoul) { fromSeoul = true }
+                    FilterChip("🏠 집(서울 광진구)에서", fromSeoul) { fromSeoul = true }
                     FilterChip("마지막 기록 위치에서", !fromSeoul) { fromSeoul = false }
                 }
                 Text("3. 시간 배속 (시속 ${drive.kmh}km 기준)", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)

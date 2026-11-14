@@ -55,7 +55,7 @@ enum class MapScope(val label: String) { ALL("전체"), YEAR("년별"), MONTH("�
 
 /** 표시 범위 토글: 전체 · 년별 · 월별. */
 @Composable
-fun ScopeToggle(scope: MapScope, onScope: (MapScope) -> Unit, modifier: Modifier = Modifier) {
+fun ScopeToggle(scope: MapScope, onScope: (MapScope) -> Unit, counts: Boolean, onCounts: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier.clip(RoundedCornerShape(24.dp)).background(Palette.Surface.copy(alpha = 0.96f))
             .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(4.dp),
@@ -70,6 +70,11 @@ fun ScopeToggle(scope: MapScope, onScope: (MapScope) -> Unit, modifier: Modifier
                     .clickable { onScope(s) }.padding(horizontal = 16.dp, vertical = 10.dp),
             ) { Text(s.label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (sel) Color.White else Palette.Ink) }
         }
+        Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(24.dp).background(Palette.Line))
+        Box(
+            Modifier.clip(RoundedCornerShape(20.dp)).background(if (counts) Palette.Primary else Color.Transparent)
+                .clickable(onClick = onCounts).padding(horizontal = 14.dp, vertical = 10.dp),
+        ) { Text("🔢 횟수", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (counts) Color.White else Palette.Ink) }
     }
 }
 

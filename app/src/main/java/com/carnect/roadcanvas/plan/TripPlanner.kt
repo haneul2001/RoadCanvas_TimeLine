@@ -276,8 +276,8 @@ class TripPlanner(
         const val ARRIVE_KM = 1.0
         /** 명소 소개 범위(km). */
         const val BRIEF_KM = 25.0
-        /** 위치를 아직 모를 때 순서 계산 기준(서울시청). */
-        val DEFAULT_START = 37.5663 to 126.9779
+        /** 위치를 아직 모를 때·테스트 주행 출발 기준: 시연용 집(서울 광진구). */
+        val DEFAULT_START = com.carnect.roadcanvas.data.Home.geo
     }
 }
 

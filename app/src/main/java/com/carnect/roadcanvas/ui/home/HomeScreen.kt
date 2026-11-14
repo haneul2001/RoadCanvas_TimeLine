@@ -401,29 +401,25 @@ private fun StatCard(icon: ImageVector, tint: Color, bg: Color, label: String, v
     }
 }
 
+/** 범례: 방문 횟수 5단계(1회 ~ 5회 이상)와 미방문. */
 @Composable
-internal fun MapLegend(modifier: Modifier) {
+internal fun MapLegend(modifier: Modifier, breaks: List<Int> = DEFAULT_BREAKS) {
     Column(
         modifier.clip(RoundedCornerShape(14.dp)).background(Palette.Surface.copy(alpha = 0.92f)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        Text("방문 횟수", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(width = 34.dp, height = 14.dp).clip(RoundedCornerShape(4.dp))
-                    .background(Brush.horizontalGradient((0..6).map { rainbow(it * 2, com.carnect.roadcanvas.trip.VisitState.PASSED) })),
-            )
-            Text(if (MapColors.theme == MapTheme.SINGLE) "  지나간 곳" else "  방문 지역 (방문 순서)", fontSize = 15.sp, color = Palette.Ink)
+            breakLabels(breaks).forEachIndexed { i, label ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.size(width = 38.dp, height = 14.dp).background(countColor(breaks[i], breaks = breaks)))
+                    Text(label, fontSize = 13.sp, color = Palette.Muted)
+                }
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(width = 34.dp, height = 14.dp).clip(RoundedCornerShape(4.dp))
-                    .background(Brush.horizontalGradient((0..6).map { rainbow(it * 2, com.carnect.roadcanvas.trip.VisitState.STAY_CANDIDATE) })),
-            )
-            Text("  머문 곳 (진하게)", fontSize = 15.sp, color = Palette.Ink)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(width = 34.dp, height = 14.dp).clip(RoundedCornerShape(4.dp)).background(Palette.Unvisited))
-            Text("  미방문 지역", fontSize = 15.sp, color = Palette.Ink)
+            Box(Modifier.size(width = 30.dp, height = 14.dp).clip(RoundedCornerShape(4.dp)).background(Palette.Unvisited))
+            Text("  미방문", fontSize = 14.sp, color = Palette.Ink)
         }
     }
 }

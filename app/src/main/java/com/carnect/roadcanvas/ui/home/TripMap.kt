@@ -137,27 +137,59 @@ class DecoEditor(
 private const val MIN_ZOOM = 0.6f
 private const val MAX_ZOOM = 8f
 
-/** 방문 순서대로 빨강 → 보라를 돌아가며 칠한다. 머문 곳·확정은 같은 색을 진하게. */
-/** 지도 색 테마(정차 중 설정에서 고름). 방문 순서마다 [hueStart]부터 [hueRange] 안에서 색을 바꾼다. */
-enum class MapTheme(val label: String, val hueStart: Float, val hueRange: Float, val step: Float) {
-    RAINBOW("무지개", 0f, 300f, 26f),
-    OCEAN("바다", 175f, 75f, 11f),
-    FOREST("숲", 70f, 90f, 13f),
-    SUNSET("노을", 330f, 75f, 11f),
-    SINGLE("단색", 215f, 0f, 0f),
+/**
+ * 지도 색 테마. 단계 구분도(choropleth) 관례대로 한 가지 색이 방문 횟수만큼 진해진다
+ * (1회 → 2회 → 3회 → 4회 → 5회 이상). 색표는 ColorBrewer 순차 색표(5단계, 가장 옅은 칸은 미방문 회색과 구분되게 뺌).
+ */
+enum class MapTheme(val label: String, val steps: List<Long>) {
+    BLUE("파랑", listOf(0xFFC6DBEF, 0xFF9ECAE1, 0xFF6BAED6, 0xFF3182BD, 0xFF08519C)),
+    GREEN("초록", listOf(0xFFC7E9C0, 0xFFA1D99B, 0xFF74C476, 0xFF31A354, 0xFF006D2C)),
+    HEAT("주황·빨강", listOf(0xFFFED976, 0xFFFEB24C, 0xFFFD8D3C, 0xFFF03B20, 0xFFBD0026)),
+    PURPLE("보라", listOf(0xFFDADAEB, 0xFFBCBDDC, 0xFF9E9AC8, 0xFF756BB1, 0xFF54278F)),
 }
 
 /** 지금 지도 색 테마. 바꾸면 지도와 범례가 바로 다시 그려진다. */
 object MapColors {
-    var theme by androidx.compose.runtime.mutableStateOf(MapTheme.RAINBOW)
+    var theme by androidx.compose.runtime.mutableStateOf(MapTheme.BLUE)
 }
 
-fun rainbow(order: Int, state: VisitState, t: MapTheme = MapColors.theme): Color {
-    val hue = if (t.hueRange == 0f) t.hueStart else (t.hueStart + (order * t.step) % t.hueRange) % 360f
-    return when (state) {
-        VisitState.PASSED -> Color.hsv(hue, 0.38f, 0.98f)
-        VisitState.STAY_CANDIDATE -> Color.hsv(hue, 0.62f, 0.93f)
-        VisitState.CONFIRMED -> Color.hsv(hue, 0.80f, 0.85f)
+/** 방문 횟수 [count]번에 칠할 색. [breaks]는 단계마다 시작 횟수(기본 1·2·3·4·5회). */
+fun countColor(count: Int, t: MapTheme = MapColors.theme, breaks: List<Int> = DEFAULT_BREAKS): Color {
+    val step = breaks.indexOfLast { count >= it }.coerceAtLeast(0)
+    return Color(t.steps[step.coerceAtMost(t.steps.lastIndex)])
+}
+
+val DEFAULT_BREAKS = listOf(1, 2, 3, 4, 5)
+
+/**
+ * 단계 구분도의 분위수 구간: 실제 방문 횟수 분포를 다섯으로 나눠 단계마다 비슷한 수의 지역이 들어가게 한다.
+ * 가장 많이 간 곳이 5회 이하면 1·2·3·4·5회 그대로.
+ */
+fun countBreaks(counts: Collection<Int>): List<Int> {
+    if (counts.isEmpty() || counts.max() <= 5) return DEFAULT_BREAKS
+    val sorted = counts.sorted()
+    val out = mutableListOf(1)
+    for (q in listOf(0.2, 0.4, 0.6, 0.8)) {
+        val v = sorted[((sorted.size - 1) * q).toInt()]
+        if (v > out.last()) out += v
+    }
+    // 같은 값이 많아 구간이 줄면 위쪽을 고르게 채운다
+    while (out.size < 5) {
+        val last = out.last()
+        val next = last + ((sorted.last() - last) / (6 - out.size)).coerceAtLeast(1)
+        if (next > sorted.last()) break
+        out += next
+    }
+    return out
+}
+
+/** 범례 글자: 구간마다 "1", "2–8", "24+". */
+fun breakLabels(breaks: List<Int>): List<String> = breaks.mapIndexed { i, b ->
+    val next = breaks.getOrNull(i + 1)
+    when {
+        next == null -> "$b+"
+        next - 1 == b -> "$b"
+        else -> "$b–${next - 1}"
     }
 }
 
@@ -189,6 +221,10 @@ fun TripMap(
     zoomControl: MapZoom? = null,
     /** 기간별 지도: 칠한 곳 전체와 경로가 다 보이게 범위를 맞춘다. */
     fitAll: Boolean = false,
+    /** 칠한 곳마다 방문 횟수 숫자를 단다. */
+    showCounts: Boolean = false,
+    /** 색 단계 구간(없으면 지금 보이는 방문 횟수로 계산). */
+    colorBreaks: List<Int>? = null,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val bitmaps = remember { StickerBitmaps(ctx) }
@@ -304,11 +340,7 @@ fun TripMap(
     } else {
         Modifier
     }
-    // 색 순서는 여행 전체 기준으로 정해 두어 재생 중에도 색이 바뀌지 않게 한다.
-    val allVisits = trip.visitsAt(index.level)
-    val order = remember(allVisits) {
-        allVisits.entries.sortedBy { it.value.firstMs }.mapIndexed { i, e -> e.key to i }.toMap()
-    }
+    val breaks = colorBreaks ?: remember(visits) { countBreaks(visits.values.map { it.count }) }
     // 읍·면·동은 구역이 촘촘해 경계선을 가늘게
     val borderWidth = if (index.level == Level.DONG) 0.5f else 1.2f
     val provinceCenters = remember(index) {
@@ -341,7 +373,7 @@ fun TripMap(
         }) {
             paths.forEach { (region, path) ->
                 val visit = visits[region.code]
-                drawPath(path, if (visit == null) Palette.Unvisited else rainbow(order[region.code] ?: 0, visit.state))
+                drawPath(path, if (visit == null) Palette.Unvisited else countColor(visit.count, breaks = breaks))
                 // 확대해도 경계선 두께는 그대로 보이게
                 drawPath(path, Palette.MapBorder, style = Stroke(width = borderWidth / zoom))
             }
@@ -354,10 +386,33 @@ fun TripMap(
         // [spots]를 넘긴 화면에서만, 확대했을 때 추천 여행지 그림(메인은 넘기지 않음)
         val spanDeg = (viewport.maxLon - viewport.minLon) / zoom
         if (spanDeg < 0.7) drawSpots(projection, spots, bitmaps, names = spanDeg < 0.4)
+        if (showCounts) drawCounts(projection, index, visits)
         if (focus == null) drawPins(projection, shown, index.level)
         drawDecorations(projection, decorations + listOfNotNull(draft), bitmaps)
         if (route.isNotEmpty()) drawRoute(projection, focus, route)
         focus?.let { drawHere(projection, it) }
+    }
+}
+
+/** 칠한 구역마다 방문 횟수(그 구역을 지난 여행 수). 화면에서 너무 작은 구역은 건너뛴다. */
+private fun DrawScope.drawCounts(p: Projection, index: RegionIndex, visits: Map<String, com.carnect.roadcanvas.trip.VisitRecord>) {
+    val text = Paint().apply {
+        isAntiAlias = true
+        textAlign = Paint.Align.CENTER
+        textSize = 22f
+        color = android.graphics.Color.WHITE
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    visits.forEach { (code, v) ->
+        val r = index.byCode(code) ?: return@forEach
+        val w = kotlin.math.abs(p.x(r.maxLon) - p.x(r.minLon))
+        val h = kotlin.math.abs(p.y(r.minLat) - p.y(r.maxLat))
+        if (w < 34f || h < 34f) return@forEach
+        val c = Offset(p.x(r.center.second), p.y(r.center.first))
+        if (c.x < -20 || c.y < -20 || c.x > size.width + 20 || c.y > size.height + 20) return@forEach
+        val label = "${v.count}"
+        drawCircle(Color(0xCC16233A), radius = 17f, center = c)
+        drawContext.canvas.nativeCanvas.drawText(label, c.x, c.y + 8f, text)
     }
 }
 

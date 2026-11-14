@@ -21,10 +21,10 @@ class DemoData(private val recorder: TripRecorder, private val roads: RoadBook) 
     private val samples = listOf(
         SampleTrip(41, 9, listOf("서울", "춘천"), setOf("춘천")),
         SampleTrip(27, 8, listOf("서울", "대전", "전주"), setOf("전주")),
-        SampleTrip(26, 10, listOf("전주", "광주", "여수"), setOf("여수")),
-        SampleTrip(12, 9, listOf("대구", "경주", "부산"), setOf("경주", "부산")),
+        SampleTrip(26, 10, listOf("서울", "광주", "여수"), setOf("여수")),
+        SampleTrip(12, 9, listOf("서울", "대구", "경주", "부산"), setOf("경주", "부산")),
         SampleTrip(4, 8, listOf("서울", "홍천", "인제", "속초"), setOf("속초")),
-        SampleTrip(3, 10, listOf("속초", "양양", "강릉"), setOf("강릉")),
+        SampleTrip(3, 10, listOf("서울", "양양", "강릉"), setOf("강릉")),
     )
 
     val tripCount: Int get() = samples.size
@@ -66,7 +66,8 @@ class DemoData(private val recorder: TripRecorder, private val roads: RoadBook) 
         try {
             weeks.forEachIndexed { n, d ->
                 val rnd = java.util.Random(d.toEpochDay())
-                val a = cities[rnd.nextInt(cities.size)]
+                // 매주 여행은 집(서울 광진구)에서 출발
+                val a = "서울"
                 val stops = mutableListOf(a)
                 repeat(1 + rnd.nextInt(2)) {
                     val near = cities.filter { it !in stops && roads.cityRoute(stops.last(), it) != null }

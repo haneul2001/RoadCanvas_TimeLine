@@ -117,7 +117,9 @@ class TripRecorder(
         }
         val area = snapshotVisits().mapValues { (_, byCode) ->
             byCode.filterValues { v -> v.tripId in ids || v.tripIds.any { it in ids } }.mapValues { (_, v) ->
-                if (v.tripId in ids) v else v.copy(firstMs = v.tripIds.filter { it in ids }.minOrNull() ?: v.firstMs)
+                // 방문 횟수도 그 기간 안의 여행만 센다
+                val inPeriod = v.tripIds.filter { it in ids }.ifEmpty { listOf(v.tripId) }
+                if (v.tripId in ids) v.copy(tripIds = inPeriod) else v.copy(firstMs = inPeriod.min(), tripIds = inPeriod)
             }
         }
         return TripState(

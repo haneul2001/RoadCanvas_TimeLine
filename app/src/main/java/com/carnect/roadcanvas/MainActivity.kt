@@ -89,8 +89,8 @@ class MainActivity : ComponentActivity() {
         // 지도 색 테마는 기기 안 설정에 저장해 두고 다시 켜도 유지한다.
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         com.carnect.roadcanvas.ui.home.MapColors.theme =
-            runCatching { com.carnect.roadcanvas.ui.home.MapTheme.valueOf(prefs.getString("map_theme", null) ?: "RAINBOW") }
-                .getOrDefault(com.carnect.roadcanvas.ui.home.MapTheme.RAINBOW)
+            runCatching { com.carnect.roadcanvas.ui.home.MapTheme.valueOf(prefs.getString("map_theme", null) ?: "BLUE") }
+                .getOrDefault(com.carnect.roadcanvas.ui.home.MapTheme.BLUE)
         val empty = MutableStateFlow(TripState())
         val emptyPlan = MutableStateFlow(PlanState())
         val emptyDrive = MutableStateFlow(DriveState())

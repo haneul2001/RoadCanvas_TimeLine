@@ -90,6 +90,7 @@ fun MainScreen(
     var historyOpen by rememberSaveable { mutableStateOf(false) }
     // 지도에 칠할 방문 범위(전체·년별·월별)와 그 기간 지도
     var mapScope by rememberSaveable { mutableStateOf(MapScope.ALL) }
+    var showCounts by rememberSaveable { mutableStateOf(true) }
     var area by remember { mutableStateOf<TripState?>(null) }
     var areaLoading by remember { mutableStateOf(false) }
     LaunchedEffect(mapScope, year, month, trips.size, trip.stickers.size) {
@@ -128,6 +129,7 @@ fun MainScreen(
     // 지도에서 누른 시·군·구(추천 여행지 카드)
     var picked by remember { mutableStateOf<com.carnect.roadcanvas.region.Region?>(null) }
     val zoomControl = remember { MapZoom() }
+    // 지금 지도에 칠한 곳의 방문 횟수로 색 단계 구간을 정한다(지도와 범례가 같이 씀)
     var level by rememberSaveable { mutableStateOf(Level.SGG) }
     val index = indexes?.get(level)
     val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon }
@@ -160,7 +162,7 @@ fun MainScreen(
                     // 년별·월별: 그 기간에 간 곳만 칠하고 그 기간 경로만
                     TripMap(
                         index, area!!, interactive = parked, Modifier.fillMaxSize(),
-                        decorations = decorations, fitAll = true, zoomControl = zoomControl,
+                        decorations = decorations, fitAll = true, zoomControl = zoomControl, showCounts = showCounts,
                         onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
                     )
                 } else if (index != null) {
@@ -169,11 +171,12 @@ fun MainScreen(
                         decorations = decorations, focus = here, route = route,
                         onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
                         zoomControl = zoomControl,
+                        showCounts = showCounts,
                     )
                 }
                 Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LevelSelector(level, onSelect = { level = it }, Modifier)
-                    ScopeToggle(mapScope, onScope = { mapScope = it })
+                    ScopeToggle(mapScope, onScope = { mapScope = it }, counts = showCounts, onCounts = { showCounts = !showCounts })
                     DateToggles(
                         trips, year, month, historyOpen,
                         onYear = { year = it; if (mapScope == MapScope.ALL) historyOpen = true },
@@ -248,7 +251,9 @@ fun MainScreen(
                 } else if (simLine != null) {
                     SimBar(simLine, simWaiting, onSimDepart, onSimStop, Modifier.align(Alignment.BottomStart).padding(14.dp))
                 } else {
-                    MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp))
+                    val shownVisits = (if (mapScope != MapScope.ALL) area else trip)?.visitsAt(level).orEmpty()
+                    val breaks = remember(shownVisits) { countBreaks(shownVisits.values.map { it.count }) }
+                    MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp), breaks)
                 }
             }
             RouteCard(plan, here, parked, onDepart, onFeature, Modifier.width(400.dp).fillMaxHeight())
