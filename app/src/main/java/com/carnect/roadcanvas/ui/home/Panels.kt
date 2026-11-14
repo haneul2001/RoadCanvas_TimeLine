@@ -221,7 +221,7 @@ fun QuestScreen(
     onCourse: ((String, List<com.carnect.roadcanvas.data.Spot>) -> Unit)? = null,
 ) {
     val visited = trip.visitsAt(Level.SGG).keys
-    val here = trip.track.lastOrNull()?.let { it.lat to it.lon } ?: com.carnect.roadcanvas.plan.TripPlanner.DEFAULT_START
+    val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon } ?: com.carnect.roadcanvas.plan.TripPlanner.DEFAULT_START
     val currentProvince = trip.current[Level.SIDO]?.name
     val provinces = remember(visited) { explorer.provincesLeft(visited) }
     var province by remember { mutableStateOf<String?>(currentProvince) }
@@ -333,7 +333,7 @@ fun DetourScreen(
     val dest = plan.target
     // 더 들러도 되는 시간(분). 평균 시속 [DETOUR_KMH]km로 어림한 거리로 바꿔 고른다.
     var budget by remember { mutableIntStateOf(15) }
-    val here = trip.track.lastOrNull()?.let { it.lat to it.lon } ?: com.carnect.roadcanvas.plan.TripPlanner.DEFAULT_START
+    val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon } ?: com.carnect.roadcanvas.plan.TripPlanner.DEFAULT_START
     val visited = trip.visitsAt(Level.SGG).keys
     val list = remember(dest, budget, visited, here) {
         dest?.let { explorer.detour(visited, here, it, budget * DETOUR_KMH / 60, limit = 8) }.orEmpty()

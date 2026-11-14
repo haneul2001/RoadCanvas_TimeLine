@@ -233,7 +233,7 @@ fun MainScreen(
                             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                         )
                 }
-                if (pl == null && parked) {
+                if (pl == null && parked && picked == null && !historyOpen) {
                     ZoomButtons(zoomControl, Modifier.align(Alignment.CenterEnd).padding(14.dp))
                 }
                 if (pl != null && replay != null) {

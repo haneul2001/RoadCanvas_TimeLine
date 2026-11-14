@@ -132,7 +132,7 @@ class RoadCanvasApp : Application() {
             val places = withContext(Dispatchers.Default) { Places(indexes) }
             val plan = TripPlanner(
                 places, naviRepo, tts,
-                position = { recorder.state.value.track.lastOrNull()?.let { it.lat to it.lon } },
+                position = { recorder.state.value.let { s -> (s.here ?: s.track.lastOrNull())?.let { it.lat to it.lon } } },
                 ensureRecording = ::ensureRecording,
             )
             planner = plan
