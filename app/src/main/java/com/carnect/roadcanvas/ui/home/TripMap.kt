@@ -3,8 +3,14 @@ package com.carnect.roadcanvas.ui.home
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.runtime.rememberUpdatedState
+import com.carnect.roadcanvas.deco.Decoration
+import com.carnect.roadcanvas.deco.Geo
+import com.carnect.roadcanvas.deco.ShapeKind
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -81,7 +87,30 @@ private class Projection(size: Size, v: Viewport, private val zoom: Float = 1f, 
 
     fun x(lon: Double) = (offsetX + (lon - minLon) * ls * scale).toFloat() * zoom + pan.x
     fun y(lat: Double) = (offsetY + (maxLat - lat) * scale).toFloat() * zoom + pan.y
+    fun at(g: Geo) = Offset(x(g.second), y(g.first))
+
+    /** 화면 좌표 → 위도·경도(꾸미기를 지도에 붙일 때). */
+    fun geo(o: Offset): Geo {
+        val lon = ((o.x - pan.x) / zoom - offsetX) / (ls * scale) + minLon
+        val lat = maxLat - ((o.y - pan.y) / zoom - offsetY) / scale
+        return lat to lon
+    }
 }
+
+/** 지도 꾸미기 도구. */
+enum class DecoTool(val label: String) {
+    MOVE("이동"), PEN("펜"), ERASER("지우개"), RECT("네모"), CIRCLE("동그라미"), ARROW("화살표"), STICKER("스티커")
+}
+
+/** 꾸미기 모드 설정. [sticker]는 붙일 스티커(이모지, 글, 색). */
+class DecoEditor(
+    val tool: DecoTool,
+    val color: Int,
+    val width: Float,
+    val sticker: Triple<String, String, Int>?,
+    val onAdd: (Decoration) -> Unit,
+    val onErase: (Set<Long>) -> Unit,
+)
 
 private const val MIN_ZOOM = 0.6f
 private const val MAX_ZOOM = 8f
@@ -122,6 +151,10 @@ fun TripMap(
     modifier: Modifier = Modifier,
     /** 타임랩스 재생 중이면 그 순간의 상태. 보이는 범위는 여행 전체([trip]) 기준으로 고정한다. */
     frame: TripState? = null,
+    /** 지도에 붙인 꾸미기(낙서·도형·스티커). */
+    decorations: List<Decoration> = emptyList(),
+    /** 꾸미기 모드면 손가락으로 그린다(이동 도구일 때만 끌어 옮김). */
+    editor: DecoEditor? = null,
 ) {
     val tripRegions = trip.trip?.let { t -> trip.visitsAt(index.level).filterValues { it.tripId == t.id }.keys.mapNotNull(index::byCode) }.orEmpty()
     val shown = frame ?: trip
@@ -136,7 +169,57 @@ fun TripMap(
             pan = Offset.Zero
         }
     }
-    val gestures = if (interactive) {
+    // 그리는 중인 낙서·도형(손을 떼면 [DecoEditor.onAdd]로 저장)
+    var draft by remember { mutableStateOf<Decoration?>(null) }
+    val currentViewport by rememberUpdatedState(viewport)
+    val currentDecos by rememberUpdatedState(decorations)
+    val drawing = editor != null && editor.tool != DecoTool.MOVE
+    val gestures = if (drawing) {
+        val ed = editor!!
+        Modifier.pointerInput(ed.tool, ed.color, ed.width, ed.sticker) {
+            awaitEachGesture {
+                val proj = Projection(Size(size.width.toFloat(), size.height.toFloat()), currentViewport, zoom, pan)
+                val down = awaitFirstDown()
+                val start = down.position
+                val id = System.currentTimeMillis()
+                when (ed.tool) {
+                    DecoTool.PEN -> draft = Decoration.Stroke(id, listOf(proj.geo(start)), ed.color, ed.width)
+                    DecoTool.RECT, DecoTool.CIRCLE, DecoTool.ARROW -> {
+                        val kind = ShapeKind.valueOf(ed.tool.name)
+                        draft = Decoration.Shape(id, kind, proj.geo(start), proj.geo(start), ed.color, ed.width)
+                    }
+                    DecoTool.ERASER -> ed.onErase(hits(proj, currentDecos, start))
+                    else -> Unit
+                }
+                var last = start
+                var moved = false
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    val ch = ev.changes.firstOrNull() ?: break
+                    if (!ch.pressed) break
+                    val pos = ch.position
+                    if ((pos - last).getDistance() < 4f) continue
+                    moved = moved || (pos - start).getDistance() > 12f
+                    last = pos
+                    ch.consume()
+                    when (val d = draft) {
+                        is Decoration.Stroke -> draft = d.copy(points = d.points + proj.geo(pos))
+                        is Decoration.Shape -> draft = d.copy(b = proj.geo(pos))
+                        else -> if (ed.tool == DecoTool.ERASER) ed.onErase(hits(proj, currentDecos, pos))
+                    }
+                }
+                when (val d = draft) {
+                    is Decoration.Stroke -> if (d.points.size >= 2) ed.onAdd(d)
+                    is Decoration.Shape -> if (moved) ed.onAdd(d)
+                    else -> if (ed.tool == DecoTool.STICKER && !moved && ed.sticker != null) {
+                        val (emoji, text, color) = ed.sticker
+                        ed.onAdd(Decoration.Sticker(id, proj.geo(start), emoji, text, color))
+                    }
+                }
+                draft = null
+            }
+        }
+    } else if (interactive) {
         Modifier
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, panChange, zoomChange, _ ->
@@ -204,6 +287,88 @@ fun TripMap(
         drawTrack(projection, shown.track)
         drawStickerStars(projection, shown)
         drawPins(projection, shown, index.level)
+        drawDecorations(projection, decorations + listOfNotNull(draft))
+    }
+}
+
+private const val HIT_PX = 26f
+
+/** 지우개: 화면 [pos] 근처에 있는 꾸미기들. */
+private fun hits(p: Projection, decos: List<Decoration>, pos: Offset): Set<Long> = decos.filter { d ->
+    when (d) {
+        is Decoration.Sticker -> (p.at(d.at) - pos).getDistance() <= 48f
+        is Decoration.Stroke -> d.points.zipWithNext().any { (a, b) -> segDist(pos, p.at(a), p.at(b)) <= HIT_PX + d.width / 2 }
+            || (d.points.size == 1 && (p.at(d.points[0]) - pos).getDistance() <= HIT_PX)
+        is Decoration.Shape -> {
+            val a = p.at(d.a)
+            val b = p.at(d.b)
+            when (d.kind) {
+                ShapeKind.ARROW -> segDist(pos, a, b) <= HIT_PX
+                else -> pos.x in min(a.x, b.x) - HIT_PX..max(a.x, b.x) + HIT_PX && pos.y in min(a.y, b.y) - HIT_PX..max(a.y, b.y) + HIT_PX
+            }
+        }
+    }
+}.map { it.id }.toSet()
+
+private fun segDist(p: Offset, a: Offset, b: Offset): Float {
+    val ab = b - a
+    val len = ab.x * ab.x + ab.y * ab.y
+    val t = if (len == 0f) 0f else (((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len).coerceIn(0f, 1f)
+    return (p - (a + ab * t)).getDistance()
+}
+
+/** 낙서·도형·스티커. 굵기와 크기는 확대와 상관없이 화면 기준. */
+private fun DrawScope.drawDecorations(p: Projection, decos: List<Decoration>) {
+    val emojiPaint = Paint().apply { isAntiAlias = true; textAlign = Paint.Align.CENTER; textSize = 40f }
+    val labelPaint = Paint().apply {
+        isAntiAlias = true
+        textAlign = Paint.Align.CENTER
+        textSize = 22f
+        color = android.graphics.Color.WHITE
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    decos.forEach { d ->
+        when (d) {
+            is Decoration.Stroke -> {
+                if (d.points.isEmpty()) return@forEach
+                val path = Path()
+                val first = p.at(d.points[0])
+                path.moveTo(first.x, first.y)
+                d.points.drop(1).forEach { g -> p.at(g).let { path.lineTo(it.x, it.y) } }
+                drawPath(path, Color(d.color), style = Stroke(width = d.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            is Decoration.Shape -> {
+                val a = p.at(d.a)
+                val b = p.at(d.b)
+                val tl = Offset(min(a.x, b.x), min(a.y, b.y))
+                val sz = Size(kotlin.math.abs(a.x - b.x), kotlin.math.abs(a.y - b.y))
+                val stroke = Stroke(width = d.width, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                when (d.kind) {
+                    ShapeKind.RECT -> drawRoundRect(Color(d.color), tl, sz, CornerRadius(8f), style = stroke)
+                    ShapeKind.CIRCLE -> drawOval(Color(d.color), tl, sz, style = stroke)
+                    ShapeKind.ARROW -> {
+                        drawLine(Color(d.color), a, b, strokeWidth = d.width, cap = StrokeCap.Round)
+                        val ang = kotlin.math.atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble())
+                        val head = 18f + d.width * 2
+                        listOf(ang + 2.6, ang - 2.6).forEach { t ->
+                            drawLine(Color(d.color), b, Offset(b.x + (head * kotlin.math.cos(t)).toFloat(), b.y + (head * kotlin.math.sin(t)).toFloat()), strokeWidth = d.width, cap = StrokeCap.Round)
+                        }
+                    }
+                }
+            }
+            is Decoration.Sticker -> {
+                val c = p.at(d.at)
+                drawCircle(Color.White, radius = 36f, center = c)
+                drawCircle(Color(d.color), radius = 36f, center = c, style = Stroke(width = 6f))
+                drawContext.canvas.nativeCanvas.drawText(d.emoji, c.x, c.y + 14f, emojiPaint)
+                if (d.text.isNotBlank()) {
+                    val w = labelPaint.measureText(d.text) + 26f
+                    val top = c.y + 42f
+                    drawRoundRect(Color(d.color), Offset(c.x - w / 2, top), Size(w, 34f), CornerRadius(17f))
+                    drawContext.canvas.nativeCanvas.drawText(d.text, c.x, top + 24f, labelPaint)
+                }
+            }
+        }
     }
 }
 

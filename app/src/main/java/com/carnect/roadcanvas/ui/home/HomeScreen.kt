@@ -104,6 +104,10 @@ fun HomeScreen(
     onSimDepart: () -> Unit = {},
     onSimStop: () -> Unit = {},
     onTestDrive: () -> Unit = {},
+    /** 지도에 붙인 꾸미기. */
+    decorations: List<com.carnect.roadcanvas.deco.Decoration> = emptyList(),
+    /** 지도 꾸미기 화면 열기(정차 중). */
+    onDecorate: () -> Unit = {},
 ) {
     var showCollection by rememberSaveable { mutableStateOf(false) }
     if (showCollection && indexes != null) {
@@ -164,8 +168,18 @@ fun HomeScreen(
             Box(
                 Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea),
             ) {
-                if (index != null) TripMap(index, trip, interactive = parked && replay == null, Modifier.fillMaxSize(), frame = frame)
-                LevelSelector(level, onSelect = { level = it }, Modifier.align(Alignment.TopStart).padding(14.dp))
+                if (index != null) TripMap(index, trip, interactive = parked && replay == null, Modifier.fillMaxSize(), frame = frame, decorations = decorations)
+                Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LevelSelector(level, onSelect = { level = it }, Modifier)
+                    if (parked && replay == null) {
+                        Row(
+                            Modifier.clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.95f))
+                                .border(1.dp, Palette.Line, RoundedCornerShape(20.dp)).clickable(onClick = onDecorate)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) { Text("🎨  지도 꾸미기", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink) }
+                    }
+                }
                 val stayName = askStay?.let { indexes?.get(Level.SGG)?.byCode(it)?.name }
                 if (askStay != null && stayName != null) {
                     ConfirmStayCard(

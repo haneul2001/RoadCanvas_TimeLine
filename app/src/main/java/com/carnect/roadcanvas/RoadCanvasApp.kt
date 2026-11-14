@@ -52,6 +52,9 @@ class RoadCanvasApp : Application() {
     var demoData: com.carnect.roadcanvas.sim.DemoData? = null
         private set
 
+    /** 지도 꾸미기(낙서·도형·스티커). */
+    val decor: com.carnect.roadcanvas.deco.DecorRepo by lazy { com.carnect.roadcanvas.deco.DecorRepo(this) }
+
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "RoadCanvasApp started")

@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
                     val trip by ((if (loaded) app.tripRecorder?.state else null) ?: empty).collectAsStateWithLifecycle()
                     val plan by ((if (loaded) app.planner?.state else null) ?: emptyPlan).collectAsStateWithLifecycle()
                     val drive by ((if (loaded) app.testDrive?.state else null) ?: emptyDrive).collectAsStateWithLifecycle()
+                    val homeDecos by app.decor.items.collectAsStateWithLifecycle()
                     val testDrive = if (loaded) app.testDrive else null
                     val listening by app.stt.listening.collectAsStateWithLifecycle()
                     val partial by app.stt.partial.collectAsStateWithLifecycle()
@@ -151,6 +152,7 @@ class MainActivity : ComponentActivity() {
                                 onRemoveZone = recorder::removeZone,
                                 onClearAll = {
                                     recorder.clear()
+                                    app.decor.wipe()
                                     planner?.clear()
                                     toast("여행 기록을 모두 지웠어요")
                                 },
@@ -188,10 +190,19 @@ class MainActivity : ComponentActivity() {
                                 if (trip.recording) TripService.stop(this)
                                 planner!!.clear()
                                 recorder!!.clear()
+                                app.decor.wipe()
                                 toast("모든 기록을 지우고 처음 상태로 돌렸어요")
                             },
                             onClose = home,
                         )
+                        Screen.DECORATE -> {
+                            val decos by app.decor.items.collectAsStateWithLifecycle()
+                            val custom by app.decor.custom.collectAsStateWithLifecycle()
+                            val trips by recorder!!.tripList.collectAsStateWithLifecycle()
+                            // 지금까지 모든 여행을 한 지도에(없으면 지금 상태)
+                            val all = remember(trips) { recorder.loadPeriod(trips.filter { it.endMs != null }.map { it.id }) } ?: trip
+                            com.carnect.roadcanvas.ui.home.DecorateScreen(indexes!!, all, app.decor, decos, custom, onClose = home)
+                        }
                         Screen.HOME -> HomeScreen(
                             indexes = regions,
                             trip = trip,
@@ -234,6 +245,8 @@ class MainActivity : ComponentActivity() {
                             onSimDepart = { planner?.depart() },
                             onSimStop = { testDrive?.stop() },
                             onTestDrive = { screen = Screen.TEST },
+                            decorations = homeDecos,
+                            onDecorate = { screen = Screen.DECORATE },
                         )
                     }
                 }
@@ -267,7 +280,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 
-    private enum class Screen { HOME, PLANNER, QUEST, DETOUR, TRIPS, SETTINGS, TEST }
+    private enum class Screen { HOME, PLANNER, QUEST, DETOUR, TRIPS, SETTINGS, TEST, DECORATE }
 
     private companion object {
         const val RECORD_AUDIO = android.Manifest.permission.RECORD_AUDIO
