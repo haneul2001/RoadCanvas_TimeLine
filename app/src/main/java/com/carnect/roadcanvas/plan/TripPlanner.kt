@@ -70,14 +70,23 @@ class TripPlanner(
     }
 
     /** 미방문 추천 등에서 목적지 하나를 바로 넣을 때. */
+    /**
+     * 계획에 한 곳을 넣고 바로 내비에 맡긴다.
+     * - 안내 중이 아니면 그곳(또는 남은 계획의 다음 곳)으로 바로 안내를 시작
+     * - 안내 중이면 지금 목적지 앞 경유지로 내비에 넣는다(내비 경유지는 최대 2곳)
+     */
     fun add(place: Place) {
         val s = _state.value
-        if (s.phase == PlanPhase.IDLE || s.phase == PlanPhase.DONE) {
-            _state.update { PlanState(stops = listOf(place), phase = PlanPhase.PROPOSED, heard = it.heard) }
-            say("${place.name}까지 안내할게요. 출발하실 때 출발이라고 말씀해 주세요.")
-        } else {
-            _state.update { it.copy(stops = it.stops + place) }
-            say("${place.name.eul} 마지막 목적지로 넣었어요.")
+        when (s.phase) {
+            PlanPhase.GUIDING -> detourVia(place)
+            PlanPhase.IDLE, PlanPhase.DONE -> {
+                _state.update { PlanState(stops = listOf(place), phase = PlanPhase.PROPOSED, heard = it.heard) }
+                depart()
+            }
+            else -> {
+                _state.update { it.copy(stops = it.stops + place) }
+                depart()
+            }
         }
     }
 
@@ -157,7 +166,9 @@ class TripPlanner(
         if (stops.isEmpty()) return
         if (_state.value.phase == PlanPhase.GUIDING) navi.cancelRoute()
         _state.update { PlanState(stops = stops, phase = PlanPhase.PROPOSED, heard = it.heard) }
-        say("$title 코스로 ${stops.joinToString(", ") { it.name }} 순서로 안내할게요. 출발이라고 말씀해 주세요.")
+        Log.i(TAG, "plan course $title: ${stops.joinToString { it.name }}")
+        // 코스를 정하면 바로 첫 곳부터 내비 안내(나머지는 도착할 때마다 차례로)
+        depart()
     }
 
     private fun brief(place: Place): String {

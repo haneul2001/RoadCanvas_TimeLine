@@ -180,7 +180,6 @@ class MainActivity : ComponentActivity() {
                             onGo = { p ->
                                 planner!!.clear()
                                 planner.add(p)
-                                planner.depart()
                                 screen = Screen.HOME
                             },
                             onAdd = { p -> planner!!.add(p) },
@@ -338,7 +337,6 @@ class MainActivity : ComponentActivity() {
                             onGoSpot = { sp ->
                                 planner?.clear()
                                 planner?.add(toPlace(sp))
-                                planner?.depart()
                             },
                             onCourse = { name, course -> planner?.planCourse(course.map(toPlace), name) },
                             onStats = { screen = Screen.STATS },
