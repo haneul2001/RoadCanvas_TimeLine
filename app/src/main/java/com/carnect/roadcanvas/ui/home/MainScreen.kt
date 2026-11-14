@@ -148,7 +148,6 @@ fun MainScreen(
                         index, trip, interactive = parked, Modifier.fillMaxSize(),
                         decorations = decorations, focus = here, route = route,
                         onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
-                        spots = spots.all,
                         zoomControl = zoomControl,
                     )
                 }

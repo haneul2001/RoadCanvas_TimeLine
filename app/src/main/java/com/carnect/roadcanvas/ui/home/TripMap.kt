@@ -347,8 +347,8 @@ fun TripMap(
         val projection = Projection(size, viewport, zoom, pan)
         drawProvinceLabels(projection, provinceCenters.values, viewport, zoom)
         drawTrack(projection, shown.track)
-        drawStickerStars(projection, shown)
-        // 확대했을 때만 추천 여행지 그림(전국 보기에서는 너무 빽빽함)
+        // 지도 위 스티커는 지도 꾸미기로 붙인 것만 그린다(받은 스티커·추천 여행지를 자동으로 찍지 않음)
+        // [spots]를 넘긴 화면에서만, 확대했을 때 추천 여행지 그림(메인은 넘기지 않음)
         val spanDeg = (viewport.maxLon - viewport.minLon) / zoom
         if (spanDeg < 0.7) drawSpots(projection, spots, bitmaps, names = spanDeg < 0.4)
         if (focus == null) drawPins(projection, shown, index.level)
