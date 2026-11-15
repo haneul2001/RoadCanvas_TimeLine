@@ -19,7 +19,7 @@
 | 지도 꾸미기 | 지도 위에 낙서·도형·업적 스티커·직접 만든 스티커 붙이기 | 동작 |
 | 여행 기록 · 설정 | 지난 여행 다시 보기·삭제, 기록 제외 구역, 전체 삭제 | 동작 |
 
-주행 중에는 음성만 쓰고, 지도 꾸미기·타임랩스 같은 화면 조작은 기어 P이고 시스템 주행 UX 제한(CarUxRestrictions)이 없을 때만 열립니다.
+화면 조작(지도 꾸미기·타임랩스·상세 목록)은 차량 시스템의 주행 제한(CarUxRestrictions)을 따릅니다. 제한이 걸리면 음성만 쓰고, 동승자 화면처럼 시스템이 허용하면 주행 중에도 열립니다. 시스템 신호를 받을 수 없으면 기어 P일 때만 엽니다.
 
 ### 스티커 도감 · 업적 · 여행 통계
 
@@ -128,7 +128,8 @@
 
 ## 테스트 환경
 
-- Pleos Connect Emulator 2.x (Android 14 / API 34, x86_64)
+- 개발·확인에 사용한 에뮬레이터: **Pleos Connect v2.1.0** (Android 14 / API 34, x86_64)
+- 화면 규격: **2560 × 1440** (가로형 차량 디스플레이, 앱 영역은 오른쪽 화면)
 - Android Studio, JDK 17 이상 (Gradle 실행용 JVM은 17~22)
 - 일반 휴대폰 에뮬레이터에는 Pleos 차량 서비스가 없어 동작하지 않습니다.
 
@@ -139,7 +140,7 @@
    https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-sys-img.xml
    ```
 2. Device Manager에서 Automotive → Pleos Connect v2.1.0 기기를 만들고 실행합니다.
-   마이크 입력이 필요하면 `scripts/start_emulator.sh`로 실행합니다(`-allow-host-audio` 포함).
+   마이크 입력이 필요하면 `scripts/start_emulator.sh`로 실행합니다(`-allow-host-audio` 포함). 에뮬레이터 Extended controls → Microphone에서 **Enable Host Microphone Access**를 켜고, PC의 기본 녹음 장치를 실제 마이크로 둡니다.
 3. 빌드·설치(별도 API 키는 필요 없습니다. 쓰는 Pleos SDK는 모두 차량 안 서비스입니다)
    ```bash
    ./gradlew installDebug
@@ -173,11 +174,12 @@ python scripts/demo_trip.py
 
 ## APK
 
-- 위치: [`apk/CAR-NECT_RoadCanvas_TimeLine_release.apk`](apk/CAR-NECT_RoadCanvas_TimeLine_release.apk) (release 빌드, 서명됨, 약 24MB)
+- 위치: [`apk/CAR-NECT_RoadCanvas_TimeLine_release.apk`](apk/CAR-NECT_RoadCanvas_TimeLine_release.apk) (release 빌드, 서명됨, 약 28MB)
 - 설치: Pleos Connect 에뮬레이터를 켠 뒤
   ```bash
   adb install -r apk/CAR-NECT_RoadCanvas_TimeLine_release.apk
   ```
   처음 실행하면 위치 권한(여행 시작 시)·마이크 권한(음성 버튼) 허용을 묻습니다.
-- 바로 확인해 보려면 홈 오른쪽 위 **테스트 주행** → 목적지(예: "속초로") → 출발. 가상의 차가 달리며 지도 색칠·타임라인·음성 안내가 진행됩니다.
+- 바로 확인해 보려면 시작 화면 **시작하기** → 메인 오른쪽 위 **테스트 주행** → 목적지(예: "속초로") → 출발. 가상의 차가 달리며 지도 색칠·타임라인·음성 안내가 진행됩니다.
+- 처음 설치하면 기록이 비어 있습니다. 테스트 주행 화면의 **샘플 여행 만들기**(또는 **매주 여행 채우기**)를 누르면 누적 지도·기간별 타임랩스·스티커 도감을 바로 볼 수 있습니다.
 - release 빌드는 실제 주행 기준(머문 곳 판정 5분)을 씁니다. `scripts/demo_trip.py`처럼 GPS를 빠르게 주입하는 시연은 debug 빌드용입니다.
