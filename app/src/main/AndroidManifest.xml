@@ -35,8 +35,9 @@
 
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTask"
             android:exported="true">
-            <!-- 주행 중에는 음성만 쓰고, 화면 조작은 정차(P)에서만 연다. -->
+            <!-- 주행 중 화면 조작은 차량 시스템의 주행 제한을 따르고, 제한 중에는 음성만 쓴다. -->
             <meta-data
                 android:name="distractionOptimized"
                 android:value="true" />

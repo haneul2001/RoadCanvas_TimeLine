@@ -63,6 +63,16 @@ class MainActivity : ComponentActivity() {
         if (locationAllowed.value) app.tripRecorder?.watch(true)
     }
 
+    /** 앱 아이콘을 다시 누른 횟수. 누를 때마다 메인 화면으로 돌아간다. */
+    private val launcherTaps = androidx.compose.runtime.mutableIntStateOf(0)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == android.content.Intent.ACTION_MAIN && intent.hasCategory(android.content.Intent.CATEGORY_LAUNCHER)) {
+            launcherTaps.intValue++
+        }
+    }
+
     override fun onStop() {
         // 화면이 안 보이면 화면용 위치는 끈다(기록 중이면 기록은 계속).
         app.tripRecorder?.watch(false)
@@ -110,6 +120,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = if (dark) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()) {
                 Surface(Modifier.fillMaxSize()) {
                     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
+                    val taps = launcherTaps.intValue
+                    androidx.compose.runtime.LaunchedEffect(taps) { if (taps > 0) screen = Screen.HOME }
                     var demoStatus by remember { mutableStateOf<String?>(null) }
                     val scope = rememberCoroutineScope()
                     val regions by app.regions.collectAsStateWithLifecycle()
