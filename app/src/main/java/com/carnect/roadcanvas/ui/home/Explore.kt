@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,50 +68,94 @@ fun BrandTitle(subtitle: String = "지금, 당신의 여행이 지도 위에 쌓
     }
 }
 
-/** 시작 화면: 하늘색 배경, 길이 이어지는 언덕, 로고와 '시작하기'. */
+/** 시작 화면: 하늘색 하늘, 큰 구름, 겹친 먼 산, 양쪽 아래 나뭇잎, 가운데 로고와 '시작하기'. */
 @Composable
 fun StartScreen(onStart: () -> Unit) {
     Box(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF9CCBFF), Color(0xFFDDEEFF), Color(0xFFF4F9FF)))),
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(Color(0xFF86C2F8), Color(0xFFBFDDFA), Color(0xFFDCEDFC), Color(0xFFEAF4FD))),
+        ),
     ) {
-        // 언덕과 굽은 길(아이콘 그림과 같은 느낌으로 직접 그림)
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
-            fun hill(color: Color, top: Float, peak: Float, shift: Float) {
+
+            // 큰 구름: 아래가 평평한 뭉게구름
+            fun cloud(cx: Float, cy: Float, s: Float, alpha: Float) {
+                val c = Color.White.copy(alpha = alpha)
+                drawCircle(c, 70f * s, Offset(cx - 110f * s, cy))
+                drawCircle(c, 105f * s, Offset(cx - 10f * s, cy - 40f * s))
+                drawCircle(c, 80f * s, Offset(cx + 100f * s, cy - 5f * s))
+                drawRoundRect(
+                    c, Offset(cx - 230f * s, cy), androidx.compose.ui.geometry.Size(470f * s, 70f * s),
+                    androidx.compose.ui.geometry.CornerRadius(35f * s),
+                )
+            }
+            cloud(w * 0.07f, h * 0.42f, 1.0f, 0.7f)
+            cloud(w * 0.90f, h * 0.60f, 1.15f, 0.75f)
+            cloud(w * 0.74f, h * 0.20f, 0.6f, 0.45f)
+
+            // 겹친 먼 산(뒤가 진하고 앞이 옅다)
+            fun ridge(color: Color, base: Float, peaks: List<Pair<Float, Float>>) {
                 val p = androidx.compose.ui.graphics.Path()
                 p.moveTo(0f, h)
-                p.lineTo(0f, h * top)
-                p.cubicTo(w * (0.25f + shift), h * peak, w * (0.55f + shift), h * (top + 0.05f), w, h * (top - 0.02f))
+                p.lineTo(0f, h * base)
+                var px = 0f
+                var py = h * base
+                peaks.forEach { (x, y) ->
+                    val nx = w * x
+                    val ny = h * y
+                    p.cubicTo(px + (nx - px) * 0.5f, py, nx - (nx - px) * 0.25f, ny, nx, ny)
+                    px = nx
+                    py = ny
+                }
+                p.cubicTo(px + (w - px) * 0.5f, py, w, h * base, w, h * base)
                 p.lineTo(w, h)
                 p.close()
                 drawPath(p, color)
             }
-            hill(Color(0xFF7FB7F2), 0.62f, 0.48f, 0.1f)
-            hill(Color(0xFF6CC3B0), 0.70f, 0.56f, -0.1f)
-            hill(Color(0xFF8DD4C2), 0.80f, 0.70f, 0.05f)
-            val road = androidx.compose.ui.graphics.Path()
-            road.moveTo(w * 0.62f, h * 0.66f)
-            road.cubicTo(w * 0.45f, h * 0.74f, w * 0.75f, h * 0.84f, w * 0.40f, h)
-            drawPath(road, Color.White, style = Stroke(width = 90f, cap = StrokeCap.Round))
-            drawPath(road, Color(0xFFDDE8F5), style = Stroke(width = 6f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(30f, 26f))))
-            listOf(0.14f to 0.18f, 0.78f to 0.12f, 0.62f to 0.30f).forEach { (x, y) ->
-                drawCircle(Color.White.copy(alpha = 0.85f), 46f, Offset(w * x, h * y))
-                drawCircle(Color.White.copy(alpha = 0.85f), 60f, Offset(w * x + 60f, h * y - 14f))
-                drawCircle(Color.White.copy(alpha = 0.85f), 42f, Offset(w * x + 120f, h * y))
+            ridge(Color(0xFFB3D3F0), 0.80f, listOf(0.12f to 0.70f, 0.30f to 0.76f, 0.55f to 0.68f, 0.78f to 0.74f, 0.93f to 0.69f))
+            ridge(Color(0xFFA2C8EC), 0.86f, listOf(0.22f to 0.76f, 0.45f to 0.83f, 0.68f to 0.77f, 0.88f to 0.82f))
+            ridge(Color(0xFFC4DEF5), 0.92f, listOf(0.10f to 0.86f, 0.38f to 0.90f, 0.62f to 0.85f, 0.85f to 0.90f))
+            drawRect(
+                Brush.verticalGradient(listOf(Color(0x00EAF4FD), Color(0xCCEAF4FD)), startY = h * 0.88f, endY = h),
+                topLeft = Offset(0f, h * 0.88f), size = androidx.compose.ui.geometry.Size(w, h * 0.12f),
+            )
+
+            // 양쪽 아래 나뭇잎
+            fun leaf(x: Float, y: Float, len: Float, angle: Float, color: Color) {
+                rotate(angle, Offset(x, y)) {
+                    val p = androidx.compose.ui.graphics.Path()
+                    p.moveTo(x, y)
+                    p.quadraticBezierTo(x + len * 0.5f, y - len * 0.32f, x + len, y)
+                    p.quadraticBezierTo(x + len * 0.5f, y + len * 0.32f, x, y)
+                    drawPath(p, color)
+                }
+            }
+            val dark = Color(0xFF5B93B7)
+            val light = Color(0xFF86B6D3)
+            val leafSize = h * 0.15f
+            // 왼쪽 아래
+            listOf(-70f to dark, -40f to light, -100f to light, -15f to dark, -125f to dark).forEachIndexed { i, (a, c) ->
+                leaf(w * 0.025f + i * 14f, h * 1.0f, leafSize * (0.9f + (i % 2) * 0.25f), a, c)
+            }
+            // 오른쪽 아래(좌우 대칭)
+            listOf(-110f to dark, -140f to light, -80f to light, -165f to dark, -55f to dark).forEachIndexed { i, (a, c) ->
+                leaf(w * 0.975f - i * 14f, h * 1.0f, leafSize * (0.9f + (i % 2) * 0.25f), a, c)
             }
         }
         Column(
-            Modifier.align(Alignment.TopCenter).padding(top = 90.dp),
+            Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(painterResource(R.drawable.logo_roadcanvas), "RoadCanvas", Modifier.size(220.dp))
-            Spacer(Modifier.height(18.dp))
+            Image(painterResource(R.drawable.logo_title), "RoadCanvas", Modifier.size(300.dp))
+            Spacer(Modifier.height(14.dp))
             Text("지금, 떠나는 여행이 더 특별해져요!", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B2A6B))
+            Spacer(Modifier.height(4.dp))
             Text("달리면 칠해지는 나만의 여행 지도", fontSize = 22.sp, color = Color(0xFF41507A))
         }
         Box(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp).size(width = 360.dp, height = 84.dp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 70.dp).size(width = 360.dp, height = 84.dp)
                 .clip(RoundedCornerShape(42.dp)).background(Color.White).clickable(onClick = onStart),
             contentAlignment = Alignment.Center,
         ) { Text("시작하기  ›", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B2A6B)) }
