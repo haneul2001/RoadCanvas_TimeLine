@@ -22,6 +22,7 @@ class SttEngine(context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var ready = false
     private var onFinal: ((String) -> Unit)? = null
+    private var lastRmsLog = 0L
 
     private val _status = MutableStateFlow("초기화 전")
     val status: StateFlow<String> = _status.asStateFlow()
@@ -45,7 +46,9 @@ class SttEngine(context: Context) {
             }
         }
 
-        override fun onUpdatedEpdData(start: Long, end: Long) = Unit
+        override fun onUpdatedEpdData(start: Long, end: Long) {
+            Log.d(TAG, "stt epd $start~$end")
+        }
         override fun onStartedRecognition() = update("듣는 중")
         override fun onEndedRecognition() {
             _listening.value = false
@@ -58,7 +61,14 @@ class SttEngine(context: Context) {
         }
 
         override fun onReady() = update("대기")
-        override fun onUpdatedRms(rms: Double) = Unit
+        override fun onUpdatedRms(rms: Double) {
+            // 마이크 입력 크기 확인용(1초에 한 번 정도만)
+            val now = System.currentTimeMillis()
+            if (now - lastRmsLog >= 1000) {
+                lastRmsLog = now
+                Log.d(TAG, "stt rms %.1f".format(rms))
+            }
+        }
     }
 
     fun start() {
