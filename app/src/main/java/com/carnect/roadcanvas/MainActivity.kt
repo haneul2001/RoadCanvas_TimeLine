@@ -126,14 +126,14 @@ class MainActivity : ComponentActivity() {
                     val listening by app.stt.listening.collectAsStateWithLifecycle()
                     val partial by app.stt.partial.collectAsStateWithLifecycle()
                     val sttStatus by app.stt.status.collectAsStateWithLifecycle()
-                    val parked = vehicle.parked
+                    val screenOpen = vehicle.screenOpen
                     val indexes = regions
                     val recorder = if (loaded) app.tripRecorder else null
                     val planner = if (loaded) app.planner else null
                     val explorer = if (loaded) app.explorer else null
                     val home = { screen = Screen.HOME }
-                    // 상세 화면은 정차 중에만 연다. 주행으로 바뀌면 지도(음성만)로 돌아간다.
-                    val ready = parked && indexes != null && recorder != null && planner != null && explorer != null && testDrive != null
+                    // 상세 화면은 시스템 주행 제한이 없을 때만 연다. 제한이 걸리면 지도(음성만)로 돌아간다.
+                    val ready = screenOpen && indexes != null && recorder != null && planner != null && explorer != null && testDrive != null
                     val current = if (ready) screen else Screen.HOME
                     if (current != Screen.HOME) BackHandler { screen = Screen.HOME }
 
@@ -326,8 +326,8 @@ class MainActivity : ComponentActivity() {
                         Screen.DASHBOARD -> HomeScreen(
                             indexes = regions,
                             trip = trip,
-                            parked = parked,
-                            driving = vehicle.gear != null && !parked,
+                            screenOpen = screenOpen,
+                            driving = vehicle.driving,
                             onToggleTrip = { toggleTrip(trip.recording) },
                             onFeature = { f -> screen = featureScreen(f, fromMain = false) },
                             voiceText = if (listening) partial else bubble,
@@ -347,8 +347,8 @@ class MainActivity : ComponentActivity() {
                             indexes = regions,
                             trip = trip,
                             plan = plan,
-                            parked = parked,
-                            driving = vehicle.gear != null && !parked,
+                            screenOpen = screenOpen,
+                            driving = vehicle.driving,
                             onToggleTrip = { toggleTrip(trip.recording) },
                             onFeature = { f ->
                                 if (f == Feature.ROUTE_REPLAY) replayOnOpen = true
@@ -380,8 +380,8 @@ class MainActivity : ComponentActivity() {
                             loadArea = { ids -> recorder?.loadArea(ids) },
                         )
                     }
-                    // 정차 중에만 팝업(주행 중엔 음성 안내만)
-                    if (award.isNotEmpty() && parked) {
+                    // 화면을 열 수 있을 때만 팝업(제한 중엔 음성 안내만)
+                    if (award.isNotEmpty() && screenOpen) {
                         com.carnect.roadcanvas.ui.home.StickerAwardDialog(award, onDismiss = { award = emptyList() })
                     }
                 }

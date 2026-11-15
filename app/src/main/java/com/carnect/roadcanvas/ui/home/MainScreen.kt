@@ -52,7 +52,7 @@ fun MainScreen(
     indexes: Map<Level, RegionIndex>?,
     trip: TripState,
     plan: PlanState,
-    parked: Boolean,
+    screenOpen: Boolean,
     driving: Boolean,
     onToggleTrip: () -> Unit,
     onFeature: (Feature) -> Unit,
@@ -135,10 +135,18 @@ fun MainScreen(
     val here = (trip.here ?: trip.track.lastOrNull())?.let { it.lat to it.lon }
     val route = if (plan.phase != PlanPhase.DONE) plan.remaining.map { it.name to (it.lat to it.lon) } else emptyList()
 
+    // 주행 기어에서 P로 바뀐 뒤 화면을 열 수 있게 되면 이번 여행 타임랩스로 넘어간다.
     var wasDriving by remember { mutableStateOf(false) }
-    LaunchedEffect(parked, driving) {
-        if (parked && wasDriving) onParkedAfterDrive()
+    var parkedAfterDrive by remember { mutableStateOf(false) }
+    LaunchedEffect(driving) {
+        parkedAfterDrive = wasDriving && !driving
         wasDriving = driving
+    }
+    LaunchedEffect(parkedAfterDrive, screenOpen) {
+        if (parkedAfterDrive && screenOpen) {
+            parkedAfterDrive = false
+            onParkedAfterDrive()
+        }
     }
 
     Column(
@@ -149,7 +157,7 @@ fun MainScreen(
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.width(360.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 VoiceBubble(voiceText, listening, onVoice)
-                HereCard(indexes, trip, parked, driving, onToggleTrip, locationAllowed, onAllowLocation, Modifier.weight(1f))
+                HereCard(indexes, trip, screenOpen, driving, onToggleTrip, locationAllowed, onAllowLocation, Modifier.weight(1f))
             }
             Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea)) {
                 val pl = playing
@@ -161,15 +169,15 @@ fun MainScreen(
                 } else if (index != null && mapScope != MapScope.ALL && area != null) {
                     // 년별·월별: 그 기간에 간 곳만 칠하고 그 기간 경로만
                     TripMap(
-                        index, area!!, interactive = parked, Modifier.fillMaxSize(),
+                        index, area!!, interactive = screenOpen, Modifier.fillMaxSize(),
                         decorations = decorations, fitAll = true, zoomControl = zoomControl, showCounts = showCounts,
-                        onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
+                        onTapGeo = if (screenOpen) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
                     )
                 } else if (index != null) {
                     TripMap(
-                        index, trip, interactive = parked, Modifier.fillMaxSize(),
+                        index, trip, interactive = screenOpen, Modifier.fillMaxSize(),
                         decorations = decorations, focus = here, route = route,
-                        onTapGeo = if (parked) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
+                        onTapGeo = if (screenOpen) { g -> picked = indexes?.get(Level.SGG)?.find(g.first, g.second) } else null,
                         zoomControl = zoomControl,
                         showCounts = showCounts,
                     )
@@ -183,7 +191,7 @@ fun MainScreen(
                         onMonth = { month = it; if (mapScope == MapScope.ALL) historyOpen = true },
                         onHistory = { historyOpen = !historyOpen },
                     )
-                    if (parked) {
+                    if (screenOpen) {
                         Row(
                             Modifier.clip(RoundedCornerShape(20.dp)).background(Palette.Surface.copy(alpha = 0.95f))
                                 .border(1.dp, Palette.Line, RoundedCornerShape(20.dp)).clickable(onClick = onDecorate)
@@ -233,7 +241,7 @@ fun MainScreen(
                             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                         )
                 }
-                if (pl == null && parked && picked == null && !historyOpen) {
+                if (pl == null && screenOpen && picked == null && !historyOpen) {
                     ZoomButtons(zoomControl, Modifier.align(Alignment.CenterEnd).padding(14.dp))
                 }
                 if (pl != null && replay != null) {
@@ -256,9 +264,9 @@ fun MainScreen(
                     MapLegend(Modifier.align(Alignment.BottomEnd).padding(14.dp), breaks)
                 }
             }
-            RouteCard(plan, here, parked, onDepart, onFeature, Modifier.width(400.dp).fillMaxHeight())
+            RouteCard(plan, here, screenOpen, onDepart, onFeature, Modifier.width(400.dp).fillMaxHeight())
         }
-        Launcher(parked, onFeature, selected = Feature.AUTO_CANVAS)
+        Launcher(screenOpen, onFeature, selected = Feature.AUTO_CANVAS)
     }
 }
 
@@ -267,7 +275,7 @@ fun MainScreen(
 private fun HereCard(
     indexes: Map<Level, RegionIndex>?,
     trip: TripState,
-    parked: Boolean,
+    screenOpen: Boolean,
     driving: Boolean,
     onToggleTrip: () -> Unit,
     locationAllowed: Boolean,
@@ -299,7 +307,13 @@ private fun HereCard(
         if (p != null) Text("%.4f, %.4f".format(p.lat, p.lon), fontSize = 15.sp, color = Palette.Muted)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatusPill(if (trip.recording) "● 기록 중" else "기록 꺼짐", if (trip.recording) Palette.Green else Palette.Muted)
-            StatusPill(if (parked) "주차 중" else if (driving) "주행 중 · 음성만" else "기어 확인 중", if (parked) Palette.Primary else Palette.Orange)
+            val pill = when {
+                driving && screenOpen -> "주행 중 · 화면 허용"
+                driving -> "주행 중 · 음성만"
+                screenOpen -> "주차 중"
+                else -> "기어 확인 중"
+            }
+            StatusPill(pill, if (screenOpen) Palette.Primary else Palette.Orange)
         }
         // 지금 시·도에서 칠한 시·군·구
         val sggIndex = indexes?.get(Level.SGG)
@@ -340,7 +354,7 @@ private fun StatusPill(text: String, color: Color) {
 private fun RouteCard(
     plan: PlanState,
     here: Pair<Double, Double>?,
-    parked: Boolean,
+    screenOpen: Boolean,
     onDepart: () -> Unit,
     onFeature: (Feature) -> Unit,
     modifier: Modifier,
@@ -357,8 +371,8 @@ private fun RouteCard(
                 fontSize = 18.sp, color = Palette.Muted,
             )
             Spacer(Modifier.weight(1f))
-            BigButton("🎤  말로 계획하기", Palette.Primary, enabled = parked) { onFeature(Feature.VOICE_PLANNER) }
-            BigButton("🔍  안 가 본 곳 추천", Palette.Green, enabled = parked) { onFeature(Feature.CANVAS_QUEST) }
+            BigButton("🎤  말로 계획하기", Palette.Primary, enabled = screenOpen) { onFeature(Feature.VOICE_PLANNER) }
+            BigButton("🔍  안 가 본 곳 추천", Palette.Green, enabled = screenOpen) { onFeature(Feature.CANVAS_QUEST) }
             return@Column
         }
         Text(
@@ -386,7 +400,7 @@ private fun RouteCard(
             }
         }
         if (plan.phase != PlanPhase.GUIDING) BigButton("출발 (내비 안내)", Palette.Primary, enabled = true, onClick = onDepart)
-        BigButton("계획 고치기", Palette.Muted, enabled = parked) { onFeature(Feature.VOICE_PLANNER) }
+        BigButton("계획 고치기", Palette.Muted, enabled = screenOpen) { onFeature(Feature.VOICE_PLANNER) }
     }
 }
 

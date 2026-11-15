@@ -30,7 +30,7 @@ fun StatusScreen(vehicleRepo: VehicleRepo, naviRepo: NaviRepo, tts: TtsEngine) {
     ) {
         Text("Road Canvas : TimeLine", style = MaterialTheme.typography.headlineMedium)
         ValueRow("기어", vehicle.gear?.name)
-        ValueRow("주차 중", if (vehicle.parked) "예" else "아니요")
+        ValueRow("주차 중", if (vehicle.atPark) "예" else "아니요")
         ValueRow("내비 연결", if (navi.ready) "됨" else "안 됨")
         ValueRow("내비 상태", navi.status?.name)
         ValueRow("TTS", ttsStatus)

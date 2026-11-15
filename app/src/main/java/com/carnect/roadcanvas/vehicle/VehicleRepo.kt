@@ -17,8 +17,18 @@ data class VehicleState(
     /** 시스템 주행 UX 제한(CarUxRestrictions)이 걸렸는지. 확인 못 하면 null. */
     val uxRestricted: Boolean? = null,
 ) {
-    /** 화면 조작(지도 꾸미기·타임랩스)은 P단이고 시스템 주행 제한도 없을 때만 연다. */
-    val parked: Boolean get() = gear == VehicleGear.GEAR_PARK && uxRestricted != true
+    /** 기어가 P인지(자동 기록·주차 후 타임랩스 판단용). */
+    val atPark: Boolean get() = gear == VehicleGear.GEAR_PARK
+
+    /** 기어가 P가 아닌 주행 기어인지. 기어를 모르면 false. */
+    val driving: Boolean get() = gear != null && gear != VehicleGear.GEAR_PARK
+
+    /**
+     * 화면 조작(지도 꾸미기·타임랩스·상세 목록)을 열어도 되는지. 차량 시스템의 주행 제한(CarUxRestrictions)을
+     * 따른다. 시스템이 주행 중에도 제한하지 않는 차(동승자 화면 등)면 열고, 제한하면 음성만 쓴다.
+     * 시스템 신호를 받을 수 없으면 기어 P일 때만 연다.
+     */
+    val screenOpen: Boolean get() = uxRestricted?.let { !it } ?: atPark
 }
 
 /** Vehicle SDK 구독 결과를 [state]로 내보낸다. */

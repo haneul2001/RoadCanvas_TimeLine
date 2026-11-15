@@ -86,7 +86,7 @@ class RoadCanvasApp : Application() {
         if (!_autoRecord.value || v.gear == null) return
         val recorder = tripRecorder ?: return
         val recording = recorder.state.value.recording
-        if (!v.parked) {
+        if (!v.atPark) {
             autoEndJob?.cancel()
             autoEndJob = null
             if (!recording && locationGranted() && testDrive?.state?.value?.running != true) {
@@ -97,7 +97,7 @@ class RoadCanvasApp : Application() {
         } else if (recording && autoStarted && autoEndJob == null) {
             autoEndJob = scope.launch {
                 kotlinx.coroutines.delay(autoEndMs)
-                if (vehicleRepo.state.value.parked && tripRecorder?.state?.value?.recording == true) {
+                if (vehicleRepo.state.value.atPark && tripRecorder?.state?.value?.recording == true) {
                     Log.i(TAG, "auto record: end after parking ${autoEndMs / 1000}s")
                     autoStarted = false
                     TripService.stop(this@RoadCanvasApp)

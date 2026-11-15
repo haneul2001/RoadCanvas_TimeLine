@@ -86,7 +86,7 @@ private const val REPLAY_MS = 14_000
 fun HomeScreen(
     indexes: Map<Level, RegionIndex>?,
     trip: TripState,
-    parked: Boolean,
+    screenOpen: Boolean,
     /** 기어를 확실히 P가 아닌 단으로 놓았을 때(기어를 아직 모르면 false). */
     driving: Boolean,
     onToggleTrip: () -> Unit,
@@ -141,9 +141,16 @@ fun HomeScreen(
     LaunchedEffect(indexes != null) { if (replayOnOpen && indexes != null) startReplay() }
     // 주행하다 P로 바꾸면(주차) 이번 여행을 자동으로 재생한다.
     var wasDriving by remember { mutableStateOf(false) }
-    LaunchedEffect(parked, driving) {
-        if (parked && wasDriving) startReplay()
+    var parkedAfterDrive by remember { mutableStateOf(false) }
+    LaunchedEffect(driving) {
+        parkedAfterDrive = wasDriving && !driving
         wasDriving = driving
+    }
+    LaunchedEffect(parkedAfterDrive, screenOpen) {
+        if (parkedAfterDrive && screenOpen) {
+            parkedAfterDrive = false
+            startReplay()
+        }
     }
     val frame = replay?.let { it.frameAt(it.timeAt(progress.value)) }
     val shown = frame ?: trip
@@ -168,10 +175,10 @@ fun HomeScreen(
             Box(
                 Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(Palette.Sea),
             ) {
-                if (index != null) TripMap(index, trip, interactive = parked && replay == null, Modifier.fillMaxSize(), frame = frame, decorations = decorations)
+                if (index != null) TripMap(index, trip, interactive = screenOpen && replay == null, Modifier.fillMaxSize(), frame = frame, decorations = decorations)
                 Column(Modifier.align(Alignment.TopStart).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LevelSelector(level, onSelect = { level = it }, Modifier)
-                    if (parked && replay == null) {
+                    if (screenOpen && replay == null) {
                         Row(
                             Modifier.clip(RoundedCornerShape(20.dp)).background(Palette.Surface.copy(alpha = 0.95f))
                                 .border(1.dp, Palette.Line, RoundedCornerShape(20.dp)).clickable(onClick = onDecorate)
@@ -190,8 +197,8 @@ fun HomeScreen(
             }
             TimelineCard(shown.eventsAt(level), Modifier.width(470.dp).fillMaxHeight())
         }
-        ActionRow(trip.recording, parked, onToggleTrip, onFeatureTap)
-        Launcher(parked, onFeatureTap, selected = if (replay != null) Feature.ROUTE_REPLAY else Feature.TIMELINE)
+        ActionRow(trip.recording, screenOpen, onToggleTrip, onFeatureTap)
+        Launcher(screenOpen, onFeatureTap, selected = if (replay != null) Feature.ROUTE_REPLAY else Feature.TIMELINE)
     }
 }
 
@@ -483,7 +490,7 @@ private fun TimelineRow(e: TimelineEvent, first: Boolean, last: Boolean) {
 }
 
 @Composable
-private fun ActionRow(recording: Boolean, parked: Boolean, onToggleTrip: () -> Unit, onFeature: (Feature) -> Unit) {
+private fun ActionRow(recording: Boolean, screenOpen: Boolean, onToggleTrip: () -> Unit, onFeature: (Feature) -> Unit) {
     Row(Modifier.fillMaxWidth().height(76.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(
             Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp))
@@ -496,9 +503,9 @@ private fun ActionRow(recording: Boolean, parked: Boolean, onToggleTrip: () -> U
             Spacer(Modifier.width(10.dp))
             Text(if (recording) "여행 마치기" else "여행 시작", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
-        ActionButton(Icons.Filled.Share, "경유 추천", parked) { onFeature(Feature.SMART_DETOUR) }
-        ActionButton(Icons.Filled.PlayArrow, "타임랩스 보기", parked) { onFeature(Feature.ROUTE_REPLAY) }
-        ActionButton(Icons.Filled.List, "기록 보기", parked) { onFeature(Feature.TIMELINE) }
+        ActionButton(Icons.Filled.Share, "경유 추천", screenOpen) { onFeature(Feature.SMART_DETOUR) }
+        ActionButton(Icons.Filled.PlayArrow, "타임랩스 보기", screenOpen) { onFeature(Feature.ROUTE_REPLAY) }
+        ActionButton(Icons.Filled.List, "기록 보기", screenOpen) { onFeature(Feature.TIMELINE) }
     }
 }
 
@@ -518,7 +525,7 @@ private fun RowScope.ActionButton(icon: ImageVector, label: String, enabled: Boo
 }
 
 @Composable
-internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit, selected: Feature? = null) {
+internal fun Launcher(screenOpen: Boolean, onFeature: (Feature) -> Unit, selected: Feature? = null) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.Card)
             .border(1.dp, Palette.Line, RoundedCornerShape(24.dp)).padding(horizontal = 20.dp, vertical = 14.dp),
@@ -533,7 +540,7 @@ internal fun Launcher(parked: Boolean, onFeature: (Feature) -> Unit, selected: F
             Text(" (로드 캔버스)", fontSize = 18.sp, color = Palette.Muted)
         }
         Row(Modifier.fillMaxWidth().height(128.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Feature.entries.forEach { f -> LauncherTile(f, enabled = parked || f == Feature.AUTO_CANVAS, onFeature, selected = f == selected) }
+            Feature.entries.forEach { f -> LauncherTile(f, enabled = screenOpen || f == Feature.AUTO_CANVAS, onFeature, selected = f == selected) }
         }
     }
 }
